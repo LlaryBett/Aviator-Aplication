@@ -6,6 +6,7 @@ const TICK_RATE = 50; // ms
 const MULTIPLIER_INCREASE_RATE = 0.01;
 const MIN_CRASH_MULTIPLIER = 1.0;
 const MAX_CRASH_MULTIPLIER = 1000.0;
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
 
 // Generate crash point using cryptographic hashes
 export const generateCrashPoint = () => {
@@ -132,7 +133,7 @@ export const useGameState = () => {
 
       const winAmount = player.bet * currentMultiplier;
 
-      const response = await fetch('http://localhost:5000/api/transactions/win', {
+      const response = await fetch(`${BACKEND_URL}/api/transactions/win`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -164,7 +165,7 @@ export const useGameState = () => {
 
     try {
       // Record bet transaction first
-      const response = await fetch('http://localhost:5000/api/transactions/bet', {
+      const response = await fetch(`${BACKEND_URL}/api/transactions/bet`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -16,9 +16,10 @@ app.set('wss', wss); // Make WebSocket server available to routes
 
 // Middleware
 const corsOptions = {
-  origin: process.env.NODE_ENV === 'production' 
-    ? ['https://your-frontend-domain.com']  // Replace with your frontend URL
-    : 'http://localhost:3000',
+  origin: [
+    'https://aviator-aplication.vercel.app',
+    'http://localhost:3000' // Local development
+  ],
   credentials: true
 };
 

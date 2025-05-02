@@ -12,6 +12,8 @@ import AuthModal from './components/AuthModal';
 import DepositModal from './components/DepositModal';
 import { Toaster } from 'react-hot-toast';
 
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+
 const App = memo(function App() {
   const {
     currentMultiplier,
@@ -114,7 +116,7 @@ const App = memo(function App() {
   useEffect(() => {
     const fetchUserBalance = async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/transactions/balance', {
+        const response = await fetch(`${BACKEND_URL}/api/transactions/balance`, {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`
           }

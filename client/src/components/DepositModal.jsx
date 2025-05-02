@@ -2,16 +2,19 @@ import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { X, DollarSign } from 'lucide-react';
 
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+
 const DepositModal = ({ isOpen, onClose }) => {
   const [amount, setAmount] = useState('');
   const [loading, setLoading] = useState(false);
   const { updateBalance } = useAuth();
 
-  const handleDeposit = async () => {
+  const handleDeposit = async (e) => {
+    e.preventDefault();
     if (!amount || isNaN(amount) || Number(amount) <= 0) return;
     setLoading(true);
     try {
-      const response = await fetch('http://localhost:5000/api/transactions/deposit', {
+      const response = await fetch(`${BACKEND_URL}/api/transactions/deposit`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -51,7 +54,7 @@ const DepositModal = ({ isOpen, onClose }) => {
 
         <h2 className="text-xl font-semibold text-white mb-4">Deposit Funds</h2>
         
-        <form onSubmit={(e) => { e.preventDefault(); handleDeposit(); }} className="space-y-4">
+        <form onSubmit={handleDeposit} className="space-y-4">
           <div>
             <label className="block text-gray-400 text-sm mb-1">Amount (KES)</label>
             <div className="relative">

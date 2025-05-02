@@ -2,6 +2,8 @@ import { useState, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-hot-toast';
 
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+
 export const useBetManager = () => {
   const { user, updateBalance } = useAuth();
   const [balanceLock, setBalanceLock] = useState(false);
@@ -17,7 +19,7 @@ export const useBetManager = () => {
         return false;
       }
 
-      const response = await fetch('http://localhost:5000/api/transactions/bet', {
+      const response = await fetch(`${BACKEND_URL}/api/transactions/bet`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -61,7 +63,7 @@ export const useBetManager = () => {
 
       const winAmount = parseFloat(amount) * parseFloat(currentMultiplier);
       
-      const response = await fetch('http://localhost:5000/api/transactions/win', {
+      const response = await fetch(`${BACKEND_URL}/api/transactions/win`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -97,7 +99,7 @@ export const useBetManager = () => {
 
   const handleLoss = useCallback(async (betId) => {
     try {
-      const response = await fetch('http://localhost:5000/api/transactions/bet/lost', {
+      const response = await fetch(`${BACKEND_URL}/api/transactions/bet/lost`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
