@@ -41,19 +41,24 @@ export const AuthProvider = ({ children }) => {
         body: JSON.stringify(credentials)
       });
 
+      console.log('Login response:', response); // Add this line
+
       const data = await response.json();
+      console.log('Login response data:', data); // Add this line
+
       if (response.ok) {
         localStorage.setItem('token', data.token);
         sessionStorage.setItem('user', JSON.stringify(data.user));
         setUser(data.user);
-        console.log('Toast: Successfully logged in!'); // <-- Add this line
-        toast.success('Successfully logged in!'); // <-- THIS IS USED FOR SUCCESSFUL LOGIN
-        fetchBalance(); // Fetch balance after login
+        toast.success('Successfully logged in!');
+        fetchBalance();
         return true;
       }
+      toast.error(data.error || 'Login failed'); // Always show toast on error
       throw new Error(data.error);
     } catch (err) {
-      toast.error(err.message);
+      toast.error(err.message || 'Login failed');
+      console.error('Login error:', err); // Add this line
       return false;
     }
   };
