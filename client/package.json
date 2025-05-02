@@ -19,8 +19,8 @@
     "lodash": "^4.17.21",
     "lucide-react": "^0.503.0",
     "prop-types": "^15.8.1",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
     "react-hot-toast": "^2.5.2",
     "react-toastify": "^11.0.5",
     "tailwindcss": "^4.1.4"
