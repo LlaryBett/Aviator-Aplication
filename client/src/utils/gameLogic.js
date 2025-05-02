@@ -1,21 +1,29 @@
 import { useState, useEffect, useCallback } from 'react';
+import { generateServerSeed, generateClientSeed, calculateCrashPoint } from './cryptoUtils';
 
 // Constants
 const TICK_RATE = 50; // ms
 const MULTIPLIER_INCREASE_RATE = 0.01;
 const MIN_CRASH_MULTIPLIER = 1.0;
-const MAX_CRASH_MULTIPLIER = 100.0;
+const MAX_CRASH_MULTIPLIER = 1000.0;
 
-// Generate a random crash point based on house edge
+// Generate crash point using cryptographic hashes
 export const generateCrashPoint = () => {
-  const randomValue = Math.random();
-  const houseEdge = 0.95;
-  
-  if (randomValue < 0.01) {
-    return MIN_CRASH_MULTIPLIER + (Math.random() * (MAX_CRASH_MULTIPLIER - 10)) + 10;
-  } else {
-    return MIN_CRASH_MULTIPLIER + (Math.random() * 9 * houseEdge);
-  }
+    const serverSeed = generateServerSeed();
+    const clientSeed = generateClientSeed();
+    
+    // Calculate raw crash point
+    const rawCrashPoint = calculateCrashPoint(serverSeed, clientSeed);
+    
+    // Apply max limit without affecting distribution
+    const finalCrashPoint = Math.min(rawCrashPoint, MAX_CRASH_MULTIPLIER);
+    
+    // Store verification data
+    window.localStorage.setItem('lastServerSeed', serverSeed);
+    window.localStorage.setItem('lastClientSeed', clientSeed);
+    window.localStorage.setItem('lastCrashPoint', finalCrashPoint.toString());
+    
+    return finalCrashPoint;
 };
 
 // Custom hook for game state management
@@ -27,7 +35,8 @@ export const useGameState = () => {
   const [gameHistory, setGameHistory] = useState([]);
   const [players, setPlayers] = useState([]);
   const [gameTimer, setGameTimer] = useState(0);
-  
+  const [lastGameVerification, setLastGameVerification] = useState(null);
+
   // Start a new game round
   const startGame = useCallback(() => {
     const newCrashPoint = generateCrashPoint();
@@ -114,51 +123,79 @@ export const useGameState = () => {
   }, [isGameActive, gamePhase, crashPoint, startGame]);
   
   // Manually cash out a player
-  const cashOut = useCallback((playerId) => {
-    if (isGameActive && gamePhase === 'flying') {
-      setPlayers(prevPlayers => 
-        prevPlayers.map(player => {
-          if (player.id === playerId && !player.isCashedOut && player.bet > 0) {
-            return {
-              ...player,
-              isCashedOut: true,
-              multiplier: currentMultiplier,
-              winAmount: player.bet * currentMultiplier
-            };
-          }
-          return player;
+  const cashOut = useCallback(async (playerId) => {
+    if (!isGameActive || gamePhase !== 'flying') return;
+
+    try {
+      const player = players.find(p => p.id === playerId);
+      if (!player || player.isCashedOut) return;
+
+      const winAmount = player.bet * currentMultiplier;
+
+      const response = await fetch('http://localhost:5000/api/transactions/win', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          betAmount: player.bet,
+          winAmount,
+          multiplier: currentMultiplier
         })
-      );
+      });
+
+      if (!response.ok) throw new Error('Failed to process win');
+
+      // Update player status after successful transaction
+      setPlayers(prev => prev.map(p => 
+        p.id === playerId 
+          ? { ...p, isCashedOut: true, multiplier: currentMultiplier, winAmount }
+          : p
+      ));
+    } catch (error) {
+      console.error('Cashout error:', error);
     }
-  }, [isGameActive, gamePhase, currentMultiplier]);
+  }, [isGameActive, gamePhase, currentMultiplier, players]);
   
   // Place a bet
-  const placeBet = useCallback((playerId, amount) => {
-    if (gamePhase === 'waiting') {
-      setPlayers(prevPlayers => {
-        const playerExists = prevPlayers.some(p => p.id === playerId);
-        
-        if (playerExists) {
-          return prevPlayers.map(player => 
-            player.id === playerId 
-              ? { ...player, bet: amount, isCashedOut: false, multiplier: null, winAmount: null }
-              : player
-          );
-        } else {
-          return [
-            ...prevPlayers,
-            {
-              id: playerId,
-              name: `Player ${prevPlayers.length + 1}`,
-              avatar: `https://i.pravatar.cc/150?u=${playerId}`,
-              bet: amount,
-              multiplier: null,
-              isCashedOut: false,
-              winAmount: null
-            }
-          ];
-        }
+  const placeBet = useCallback(async (playerId, amount, autoCashout = null) => {
+    if (gamePhase !== 'waiting') return;
+
+    try {
+      // Record bet transaction first
+      const response = await fetch('http://localhost:5000/api/transactions/bet', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ amount, autoCashout })
       });
+
+      if (!response.ok) throw new Error('Failed to place bet');
+      
+      // Update players after successful transaction
+      setPlayers(prevPlayers => {
+        const existingPlayerIndex = prevPlayers.findIndex(p => p.id === playerId);
+        const playerData = {
+          id: playerId,
+          bet: amount,
+          autoCashout,
+          isCashedOut: false,
+          multiplier: null,
+          winAmount: null
+        };
+
+        if (existingPlayerIndex >= 0) {
+          return prevPlayers.map((p, i) => 
+            i === existingPlayerIndex ? { ...p, ...playerData } : p
+          );
+        }
+        return [...prevPlayers, playerData];
+      });
+    } catch (error) {
+      console.error('Bet error:', error);
     }
   }, [gamePhase]);
   
@@ -213,6 +250,22 @@ export const useGameState = () => {
     gameTimer,
     startGame,
     cashOut,
-    placeBet
+    placeBet,
+    lastGameVerification,
+    verifyLastGame: () => {
+      const serverSeed = window.localStorage.getItem('lastServerSeed');
+      const clientSeed = window.localStorage.getItem('lastClientSeed');
+      const storedCrashPoint = parseFloat(window.localStorage.getItem('lastCrashPoint'));
+      
+      if (serverSeed && clientSeed && storedCrashPoint) {
+        const calculatedCrashPoint = calculateCrashPoint(serverSeed, clientSeed);
+        setLastGameVerification({
+          verified: Math.abs(calculatedCrashPoint - storedCrashPoint) < 0.0001,
+          serverSeed,
+          clientSeed,
+          crashPoint: storedCrashPoint
+        });
+      }
+    }
   };
 };

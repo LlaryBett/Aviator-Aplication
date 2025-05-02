@@ -1,27 +1,75 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Send, MessageSquare, Smile, Gift } from 'lucide-react';
+import React, { useState, useRef, useEffect, memo } from 'react';
+import { Send, MessageSquare, Smile, Gift, X } from 'lucide-react';
+import data from '@emoji-mart/data';
+import Picker from '@emoji-mart/react';
+import { chatService } from '../services/chatService';
+import { useAuth } from '../context/AuthContext';
 
-const ChatBox = ({ messages, onSendMessage }) => {
+const ChatBox = memo(() => {
+  const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const messagesEndRef = useRef(null);
-  
+  const { user } = useAuth();
+
+  useEffect(() => {
+    chatService.connect();
+
+    const messageListener = (message) => {
+      // Ensure the message has valid text and username
+      if (message.text && message.username && message.username.trim() !== '') {
+        setMessages(prevMessages => [...prevMessages, message]);
+      }
+    };
+
+    chatService.subscribe(messageListener);
+
+    return () => {
+      chatService.unsubscribe(messageListener);
+    };
+  }, []);
+
+  // Auto-scroll behavior
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
-  
+
   const handleSendMessage = (e) => {
     e.preventDefault();
-    if (newMessage.trim()) {
-      onSendMessage(newMessage.trim());
-      setNewMessage('');
+    if (!newMessage.trim()) return;
+
+    // Check if user is authenticated
+    if (!user) {
+      alert('You must be logged in to send messages.');
+      return;
     }
+
+    const messageData = {
+      text: newMessage.trim(),
+      username: user.username,
+      avatar: `https://i.pravatar.cc/150?u=${user.username}`,
+      timestamp: Date.now(),
+    };
+
+    // Local echo for instant feedback
+    setMessages(prev => [...prev, messageData]);
+    chatService.sendMessage(messageData);
+    setNewMessage('');
   };
-  
+
+  const handleEmojiSelect = (emoji) => {
+    setNewMessage(prev => prev + emoji.native);
+    setShowEmojiPicker(false);
+  };
+
   const formatTime = (timestamp) => {
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (!timestamp) return '';
+    const date = new Date(Number(timestamp));
+    return date.getTime() ? 
+      date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 
+      new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
-  
+
   return (
     <div className="bg-gray-800/90 backdrop-blur-md border border-gray-700 rounded-lg flex flex-col h-full">
       <div className="p-3 border-b border-gray-700 flex justify-between items-center">
@@ -33,33 +81,53 @@ const ChatBox = ({ messages, onSendMessage }) => {
           <Gift size={18} />
         </button>
       </div>
-      
+
       {/* Messages Container */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
-        {messages.map((msg) => (
-          <div key={msg.id} className="flex items-start">
+        {messages.map((msg, index) => (
+          <div key={index} className="flex items-start">
             <img 
-              src={msg.avatar} 
-              alt={msg.username} 
+              src={msg.avatar || '/default-avatar.png'} 
+              alt={msg.username || 'Anonymous'} 
               className="w-8 h-8 rounded-full mr-2 mt-1" 
             />
             <div>
               <div className="flex items-center">
-                <span className="font-medium text-teal-400">{msg.username}</span>
+                <span className="font-medium text-teal-400">{msg.username || 'Anonymous'}</span>
                 <span className="text-xs text-gray-500 ml-2">{formatTime(msg.timestamp)}</span>
               </div>
-              <p className="text-white text-sm">{msg.message}</p>
+              <p className="text-white text-sm">{msg.text}</p>
             </div>
           </div>
         ))}
         <div ref={messagesEndRef} />
       </div>
-      
+
       {/* Message Input */}
-      <div className="p-3 border-t border-gray-700">
+      <div className="p-3 border-t border-gray-700 relative">
+        {showEmojiPicker && (
+          <div className="absolute bottom-full mb-2 left-0">
+            <div className="relative">
+              <button
+                onClick={() => setShowEmojiPicker(false)}
+                className="absolute right-2 top-2 text-gray-400 hover:text-gray-300 z-10"
+              >
+                <X size={16} />
+              </button>
+              <Picker 
+                data={data} 
+                onEmojiSelect={handleEmojiSelect}
+                theme="dark"
+                previewPosition="none"
+                skinTonePosition="none"
+              />
+            </div>
+          </div>
+        )}
         <form onSubmit={handleSendMessage} className="flex space-x-2">
           <button
             type="button"
+            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
             className="text-gray-400 hover:text-teal-400 transition-colors"
           >
             <Smile size={20} />
@@ -75,7 +143,7 @@ const ChatBox = ({ messages, onSendMessage }) => {
             type="submit"
             disabled={!newMessage.trim()}
             className={`px-3 py-2 rounded ${
-              newMessage.trim() 
+              newMessage.trim()
                 ? 'bg-teal-600 hover:bg-teal-700 text-white' 
                 : 'bg-gray-700 text-gray-400 cursor-not-allowed'
             } transition-colors`}
@@ -86,6 +154,6 @@ const ChatBox = ({ messages, onSendMessage }) => {
       </div>
     </div>
   );
-};
+});
 
 export default ChatBox;

@@ -19,46 +19,44 @@ const GameHistory = ({ history }) => {
         </h3>
       </div>
       
-      <div className="overflow-y-auto max-h-[300px] overscroll-contain">
-        <div className="flex flex-wrap gap-2">
-          {history.map((item) => (
-            <div 
-              key={item.id}
-              className={`${getCrashPointColor(item.crashPoint)} bg-gray-700/60 text-sm font-medium px-3 py-1 rounded-full`}
-            >
-              {item.crashPoint.toFixed(2)}x
-            </div>
-          ))}
+      <div className="flex flex-wrap gap-2">
+        {history.map((item) => (
+          <div 
+            key={item.id}
+            className={`${getCrashPointColor(item.crashPoint)} bg-gray-700/60 text-sm font-medium px-3 py-1 rounded-full`}
+          >
+            {item.crashPoint.toFixed(2)}x
+          </div>
+        ))}
+      </div>
+      
+      <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="bg-gray-700/60 p-2 rounded flex flex-col items-center">
+          <span className="text-xs text-gray-400">Avg. Crash</span>
+          <span className="text-white font-medium">
+            {(history.reduce((sum, item) => sum + item.crashPoint, 0) / (history.length || 1)).toFixed(2)}x
+          </span>
         </div>
         
-        <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="bg-gray-700/60 p-2 rounded flex flex-col items-center">
-            <span className="text-xs text-gray-400">Avg. Crash</span>
-            <span className="text-white font-medium">
-              {(history.reduce((sum, item) => sum + item.crashPoint, 0) / (history.length || 1)).toFixed(2)}x
-            </span>
-          </div>
-          
-          <div className="bg-gray-700/60 p-2 rounded flex flex-col items-center">
-            <span className="text-xs text-gray-400">Highest</span>
-            <span className="text-teal-400 font-medium">
-              {Math.max(...history.map(item => item.crashPoint)).toFixed(2)}x
-            </span>
-          </div>
-          
-          <div className="bg-gray-700/60 p-2 rounded flex flex-col items-center">
-            <span className="text-xs text-gray-400">Below 2x</span>
-            <span className="text-white font-medium">
-              {Math.round((history.filter(item => item.crashPoint < 2).length / (history.length || 1)) * 100)}%
-            </span>
-          </div>
-          
-          <div className="bg-gray-700/60 p-2 rounded flex flex-col items-center">
-            <span className="text-xs text-gray-400">Above 2x</span>
-            <span className="text-white font-medium">
-              {Math.round((history.filter(item => item.crashPoint >= 2).length / (history.length || 1)) * 100)}%
-            </span>
-          </div>
+        <div className="bg-gray-700/60 p-2 rounded flex flex-col items-center">
+          <span className="text-xs text-gray-400">Highest</span>
+          <span className="text-teal-400 font-medium">
+            {Math.max(...history.map(item => item.crashPoint)).toFixed(2)}x
+          </span>
+        </div>
+        
+        <div className="bg-gray-700/60 p-2 rounded flex flex-col items-center">
+          <span className="text-xs text-gray-400">Below 2x</span>
+          <span className="text-white font-medium">
+            {Math.round((history.filter(item => item.crashPoint < 2).length / (history.length || 1)) * 100)}%
+          </span>
+        </div>
+        
+        <div className="bg-gray-700/60 p-2 rounded flex flex-col items-center">
+          <span className="text-xs text-gray-400">Above 2x</span>
+          <span className="text-white font-medium">
+            {Math.round((history.filter(item => item.crashPoint >= 2).length / (history.length || 1)) * 100)}%
+          </span>
         </div>
       </div>
     </div>
