@@ -2,6 +2,7 @@ import React, { createContext, useState, useEffect, useContext, useCallback, use
 import { toast } from 'react-hot-toast';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+console.log('Backend URL:', BACKEND_URL); // Add this line to debug
 
 export const AuthContext = createContext(null);
 
@@ -35,9 +36,14 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (credentials) => {
     try {
+      console.log('Attempting login to:', `${BACKEND_URL}/api/auth/login`);
       const response = await fetch(`${BACKEND_URL}/api/auth/login`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        credentials: 'include', // Add this line
         body: JSON.stringify(credentials)
       });
 
@@ -53,7 +59,7 @@ export const AuthProvider = ({ children }) => {
       }
       throw new Error(data.error);
     } catch (err) {
-      console.error('Login error:', err);
+      console.error('Login error details:', err);
       toast.error(err.message);
       return false;
     }

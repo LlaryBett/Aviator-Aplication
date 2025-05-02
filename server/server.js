@@ -20,7 +20,9 @@ const corsOptions = {
     'https://aviator-aplication.vercel.app',
     'http://localhost:3000' // Local development
   ],
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
 };
 
 app.use(cors(corsOptions));
