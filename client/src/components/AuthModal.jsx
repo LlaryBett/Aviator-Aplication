@@ -3,6 +3,8 @@ import { X, Mail, Lock, User, Loader, Phone } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useAuth } from '../hooks/useAuth';
 
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+
 const AuthModal = ({ isOpen, onClose, defaultTab = 'login' }) => {
   const [activeTab, setActiveTab] = useState(defaultTab);
   const [loading, setLoading] = useState(false);
@@ -28,7 +30,7 @@ const AuthModal = ({ isOpen, onClose, defaultTab = 'login' }) => {
         }
       } else {
         // Handle registration
-        const response = await fetch('http://localhost:5000/api/auth/register', {
+        const response = await fetch(`${BACKEND_URL}/api/auth/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(formData)

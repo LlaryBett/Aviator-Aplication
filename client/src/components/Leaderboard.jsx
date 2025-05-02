@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Trophy, Medal } from 'lucide-react';
 
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+
 const Leaderboard = () => {
   const [players, setPlayers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -8,7 +10,7 @@ const Leaderboard = () => {
   useEffect(() => {
     const fetchLeaderboard = async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/leaderboard');
+        const response = await fetch(`${BACKEND_URL}/api/leaderboard`);
         const data = await response.json();
         // Ensure we're using the leaderboard array from the response
         setPlayers(data.leaderboard || []);
