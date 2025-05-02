@@ -7,6 +7,7 @@ const apiRoutes = require('./src/routes/api');
 const websocketHandler = require('./src/routes/websocket');
 const authRoutes = require('./src/routes/auth');
 const transactionRoutes = require('./src/routes/transactions');
+require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 
 const app = express();
 const server = http.createServer(app);
@@ -45,7 +46,7 @@ setInterval(() => {
 }, 30000);
 
 // Database connection
-mongoose.connect('mongodb+srv://llarykiplangat:Password123@cluster0.u85zl.mongodb.net/AviatorDB', {
+mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true
 });
