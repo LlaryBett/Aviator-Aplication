@@ -35,6 +35,10 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (credentials) => {
     try {
+      // Always clear previous session/token before login
+      localStorage.removeItem('token');
+      sessionStorage.removeItem('user');
+
       const response = await fetch(`${BACKEND_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -43,17 +47,47 @@ export const AuthProvider = ({ children }) => {
 
       const data = await response.json();
       if (response.ok) {
+        // Always store the new user/token after login
         localStorage.setItem('token', data.token);
         sessionStorage.setItem('user', JSON.stringify(data.user));
         setUser(data.user);
-        console.log('Toast: Successfully logged in!'); // <-- Add this line
-        toast.success('Successfully logged in!'); // <-- THIS IS USED FOR SUCCESSFUL LOGIN
-        fetchBalance(); // Fetch balance after login
+        toast.success('Successfully logged in!');
+        fetchBalance();
         return true;
       }
+      toast.error(data.error || 'Login failed');
       throw new Error(data.error);
     } catch (err) {
-      toast.error(err.message);
+      toast.error(err.message || 'Login failed');
+      return false;
+    }
+  };
+
+  const register = async (credentials) => {
+    try {
+      // Always clear previous session/token before register
+      localStorage.removeItem('token');
+      sessionStorage.removeItem('user');
+
+      const response = await fetch(`${BACKEND_URL}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(credentials)
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        // Optionally, auto-login after register:
+        // localStorage.setItem('token', data.token);
+        // sessionStorage.setItem('user', JSON.stringify(data.user));
+        // setUser(data.user);
+        toast.success('Registration successful! Please login.');
+        return true;
+      }
+      toast.error(data.error || 'Registration failed');
+      throw new Error(data.error);
+    } catch (err) {
+      toast.error(err.message || 'Registration failed');
       return false;
     }
   };
@@ -70,6 +104,7 @@ export const AuthProvider = ({ children }) => {
     } catch (err) {
       console.error('Logout error:', err.message);
     } finally {
+      // Always clear storage on logout
       localStorage.removeItem('token');
       sessionStorage.removeItem('user');
       setUser(null);
@@ -173,6 +208,7 @@ export const AuthProvider = ({ children }) => {
       isLoading, 
       login, 
       logout,
+      register,
       isAuthenticated: !!user,
       deductBalance,
       addWinnings,

@@ -28,6 +28,7 @@ const calculateBalance = async (userId) => {
   return transactions.length > 0 ? transactions[0].total : 0;
 };
 
+// Register
 router.post('/register', async (req, res) => {
   console.log('Registration attempt:', req.body);
   try {
@@ -48,11 +49,21 @@ router.post('/register', async (req, res) => {
 
     const user = new User(req.body);
     await user.save();
-    
-    console.log('User registered successfully:', user._id);
+
+    // Return the new user object (without password) and optionally a token if you want auto-login
     res.status(201).json({ 
-      success: true, 
-      message: 'Registration successful! Please login.' 
+      user: {
+        _id: user._id,
+        username: user.username,
+        email: user.email,
+        phone: req.body.phone,
+        balance: 0,
+        avatar: user.avatar
+      },
+      // Optionally, generate a token here if you want to auto-login after register:
+      // token: jwt.sign({ userId: user._id }, process.env.JWT_SECRET)
+      success: true,
+      message: 'Registration successful! Please login.'
     });
   } catch (error) {
     console.error('Registration error:', error);
@@ -60,23 +71,22 @@ router.post('/register', async (req, res) => {
   }
 });
 
+// Login
 router.post('/login', async (req, res) => {
   try {
     const user = await User.findOne({
       $or: [{ email: req.body.email }, { phone: req.body.phone }]
     });
-    
+
     if (!user || !(await user.comparePassword(req.body.password))) {
       throw new Error('Invalid credentials');
     }
 
     // Calculate current balance
     const balance = await calculateBalance(user._id);
-    user.balance = balance;
-    await user.save();
 
-    const token = jwt.sign({ userId: user._id }, 'your_jwt_secret');
-    console.log('Login successful. Balance:', balance);
+    // Always return a fresh user object and token
+    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET);
 
     res.json({
       user: {
@@ -94,22 +104,15 @@ router.post('/login', async (req, res) => {
   }
 });
 
-router.post('/logout', auth, async (req, res) => {
-  try {
-    req.user.tokens = req.user.tokens.filter(token => token.token !== req.token);
-    await req.user.save();
-    res.send({ message: 'Logged out successfully' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+// Logout (stateless for JWT)
+router.post('/logout', (req, res) => {
+  res.status(200).json({ message: 'Logged out successfully' });
 });
 
+// Verify
 router.get('/verify', auth, async (req, res) => {
   try {
     const balance = await calculateBalance(req.user._id);
-    req.user.balance = balance;
-    await req.user.save();
-    
     res.json({
       user: {
         _id: req.user._id,
