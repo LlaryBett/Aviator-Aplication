@@ -6,149 +6,68 @@ const User = require('../models/User');
 const Transaction = require('../models/Transaction');
 const auth = require('../middleware/auth');
 
-// Helper function to calculate balance
-const calculateBalance = async (userId) => {
-  console.log('Calculating balance for user:', userId);
-  const transactions = await Transaction.aggregate([
-    { 
-      $match: { 
-        userId: new mongoose.Types.ObjectId(userId),
-        status: 'completed'
-      }
-    },
-    { 
-      $group: {
-        _id: null,
-        total: {
-          $sum: {
-            $cond: [
-              { $in: ['$type', ['deposit', 'win']] },
-              '$amount',
-              { $multiply: ['$amount', -1] }  // for bets and withdrawals
-            ]
-          }
-        }
-      }
-    }
-  ]);
-  const balance = transactions.length > 0 ? transactions[0].total : 0;
-  console.log('Calculated balance:', balance, 'for user:', userId);
-  return balance;
-};
-
-// Register
+// Register a new user
 router.post('/register', async (req, res) => {
-  console.log('Registration attempt:', req.body);
   try {
-    // Check if user exists
-    const existingUser = await User.findOne({
-      $or: [
-        { email: req.body.email },
-        { phone: req.body.phone },
-        { username: req.body.username }
-      ]
-    });
-
-    if (existingUser) {
-      return res.status(400).json({ 
-        error: 'User already exists with this email, phone, or username' 
-      });
-    }
-
-    const user = new User({
-      ...req.body,
-      balance: 0  // Explicitly set initial balance
-    });
+    const user = new User(req.body);
     await user.save();
-    console.log('New user registered with ID:', user._id, 'Initial balance:', user.balance);
-
-    // Return the new user object (without password) and optionally a token if you want auto-login
+    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '24h' });
     res.status(201).json({ 
       user: {
         _id: user._id,
         username: user.username,
         email: user.email,
-        phone: req.body.phone,
-        balance: 0,
+        phone: user.phone,
+        balance: user.balance,
         avatar: user.avatar
       },
-      // Optionally, generate a token here if you want to auto-login after register:
-      // const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET)
-      success: true,
-      message: 'Registration successful! Please login.'
+      token,
+      message: 'User registered successfully'
     });
   } catch (error) {
-    console.error('Registration error:', error);
     res.status(400).json({ error: error.message });
   }
 });
 
-// Login
+// Login an existing user
 router.post('/login', async (req, res) => {
   try {
-    const user = await User.findOne({
-      $or: [{ email: req.body.email }, { phone: req.body.phone }]
-    });
-
-    if (!user || !(await user.comparePassword(req.body.password))) {
-      throw new Error('Invalid credentials');
+    const { email, password } = req.body;
+    const user = await User.findOne({ email }).select('+password'); // Include password
+    if (!user || !(await user.comparePassword(password))) {
+      return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // Calculate balance specifically for this user
-    const balance = await calculateBalance(user._id);
-    console.log('Login: User balance calculated:', {
-      userId: user._id,
-      balance: balance
-    });
-    
-    user.balance = balance;
-    await user.save();
-
-    console.log('Login Debug - Secret:', process.env.JWT_SECRET ? 'Secret exists' : 'NO SECRET!');
-    const token = jwt.sign(
-      { userId: user._id }, 
-      process.env.JWT_SECRET || 'aviatorsecret'
-    );
-
-    // Always return a fresh user object and token
-    res.json({
+    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '24h' });
+    res.json({ 
       user: {
         _id: user._id,
         username: user.username,
         email: user.email,
         phone: user.phone,
-        balance: balance,
+        balance: user.balance,
         avatar: user.avatar
       },
-      token
+      token 
     });
   } catch (error) {
-    console.error('Login Error:', error);
     res.status(401).json({ error: error.message });
   }
 });
 
-// Logout (stateless for JWT)
-router.post('/logout', (req, res) => {
+// Logout (invalidate token) - requires auth middleware
+router.post('/logout', auth, async (req, res) => {
+  // Invalidate token (if using token blacklist)
   res.status(200).json({ message: 'Logged out successfully' });
 });
 
-// Verify
-router.get('/verify', auth, async (req, res) => {
+// Get user data (requires authentication)
+router.get('/me', auth, async (req, res) => {
   try {
-    const balance = await calculateBalance(req.user._id);
-    res.json({
-      user: {
-        _id: req.user._id,
-        username: req.user.username,
-        email: req.user.email,
-        phone: req.user.phone,
-        balance: balance,
-        avatar: req.user.avatar
-      }
-    });
+    // User is already attached to the request by auth middleware
+    res.json(req.user);
   } catch (error) {
-    res.status(401).json({ error: error.message });
+    res.status(500).json({ error: error.message });
   }
 });
 

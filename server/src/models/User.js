@@ -1,34 +1,53 @@
 const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');  // Change to bcryptjs
+const bcrypt = require('bcryptjs');
 
 const userSchema = new mongoose.Schema({
-  username: { type: String, required: true, unique: true },
-  email: { type: String, sparse: true, unique: true },
-  phone: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  balance: { 
+  username: { 
+    type: String, 
+    required: true, 
+    unique: true,
+    trim: true,
+    minlength: 3,
+    maxlength: 50
+  },
+  email: { 
+    type: String, 
+    unique: true, 
+    sparse: true, // Allows multiple null emails
+    lowercase: true,
+    trim: true,
+    match: [/^\S+@\S+$/, 'Invalid email format']
+  },
+  phone: { 
+    type: String, 
+    required: true, 
+    unique: true,
+    trim: true,
+    match: [/^\d{10,15}$/, 'Invalid phone format']
+  },
+  password: { 
+    type: String, 
+    required: true,
+    minlength: 6
+  },
+  balance: {
     type: Number,
     default: 0,
-    required: true
+    min: 0
   },
   avatar: {
     type: String,
     default: 'https://api.dicebear.com/7.x/avataaars/svg'
   }
-}, { timestamps: true });
-
-// Ensure phone OR email is provided
-userSchema.pre('save', function(next) {
-  if (!this.phone && !this.email) {
-    next(new Error('Either phone or email is required'));
-  }
-  next();
+}, { 
+  timestamps: true, // Adds createdAt and updatedAt
+  toJSON: { virtuals: true },    // Enable virtuals when converting to JSON
+  toObject: { virtuals: true }  // Enable virtuals when converting to objects
 });
 
-// Pre-save middleware to hash password
+// Hash password before saving
 userSchema.pre('save', async function(next) {
   if (!this.isModified('password')) return next();
-  
   try {
     const salt = await bcrypt.genSalt(10);
     this.password = await bcrypt.hash(this.password, salt);
@@ -38,30 +57,9 @@ userSchema.pre('save', async function(next) {
   }
 });
 
-// Login method
-userSchema.statics.findByCredentials = async (identifier, password) => {
-  const user = await User.findOne({
-    $or: [{ email: identifier }, { phone: identifier }]
-  });
-  if (!user) throw new Error('Invalid login credentials');
-  
-  const isMatch = await bcrypt.compare(password, user.password);
-  if (!isMatch) throw new Error('Invalid login credentials');
-  
-  return user;
-};
-
 // Method to compare passwords
 userSchema.methods.comparePassword = async function(candidatePassword) {
-  return await bcrypt.compare(candidatePassword, this.password);
-};
-
-// Add method to update balance
-userSchema.methods.updateBalance = async function(amount, type) {
-  this.balance = type === 'debit' ? this.balance - amount : this.balance + amount;
-  this.lastTransactionAt = new Date();
-  await this.save();
-  return this.balance;
+  return bcrypt.compare(candidatePassword, this.password);
 };
 
 module.exports = mongoose.model('User', userSchema);

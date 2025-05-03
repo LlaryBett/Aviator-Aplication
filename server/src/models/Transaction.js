@@ -21,13 +21,25 @@ const transactionSchema = new mongoose.Schema({
     type: String,
     enum: ['pending', 'completed', 'failed'],
     default: 'pending'
+  },
+  description: {
+    type: String,
+    maxlength: 255,
+    trim: true
+  },
+  relatedTransaction: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Transaction',
+    default: null
   }
 }, { 
-  timestamps: true 
+  timestamps: true,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
 });
 
-// Index for faster queries
-transactionSchema.index({ userId: 1, status: 1 });
+// Add compound index for faster queries
+transactionSchema.index({ userId: 1, type: 1, status: 1 });
 
 // Middleware to update user balance
 transactionSchema.post('save', async function() {
