@@ -85,9 +85,13 @@ router.post('/login', async (req, res) => {
     // Calculate current balance
     const balance = await calculateBalance(user._id);
 
-    // Always return a fresh user object and token
-    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET);
+    console.log('Login Debug - Secret:', process.env.JWT_SECRET ? 'Secret exists' : 'NO SECRET!');
+    const token = jwt.sign(
+      { userId: user._id }, 
+      process.env.JWT_SECRET || 'aviatorsecret'
+    );
 
+    // Always return a fresh user object and token
     res.json({
       user: {
         _id: user._id,
@@ -100,6 +104,7 @@ router.post('/login', async (req, res) => {
       token
     });
   } catch (error) {
+    console.error('Login Error:', error);
     res.status(401).json({ error: error.message });
   }
 });

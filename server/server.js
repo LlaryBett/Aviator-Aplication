@@ -9,6 +9,11 @@ const authRoutes = require('./src/routes/auth');
 const transactionRoutes = require('./src/routes/transactions');
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 
+// Add this debug logging
+console.log('Environment Check:');
+console.log('JWT_SECRET:', process.env.JWT_SECRET ? 'Is set' : 'NOT SET');
+console.log('MONGODB_URI:', process.env.MONGODB_URI ? 'Is set' : 'NOT SET');
+
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });

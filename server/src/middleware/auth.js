@@ -9,10 +9,11 @@ const auth = async (req, res, next) => {
       throw new Error('Invalid token format');
     }
 
+    console.log('JWT Debug - Secret:', process.env.JWT_SECRET ? 'Secret exists' : 'NO SECRET!');
     const token = authHeader.replace('Bearer ', '');
     console.log('🔑 Verifying token:', token);
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'aviatorsecret');
     console.log('👤 Decoded user ID:', decoded.userId);
 
     const user = await User.findById(decoded.userId)
@@ -35,7 +36,10 @@ const auth = async (req, res, next) => {
     req.token = token;
     next();
   } catch (error) {
-    console.error('🚫 Auth error:', error.message);
+    console.error('Auth Error Details:', {
+      message: error.message,
+      secret: process.env.JWT_SECRET ? 'Secret exists' : 'NO SECRET!'
+    });
     res.status(401).json({ error: 'Please authenticate.' });
   }
 };
