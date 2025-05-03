@@ -1,6 +1,8 @@
 import React, { createContext, useState, useEffect, useContext, useCallback, useRef } from 'react';
 import { toast } from 'react-hot-toast';
 
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+
 export const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
@@ -12,7 +14,7 @@ export const AuthProvider = ({ children }) => {
 
   const verifyToken = async (token) => {
     try {
-      const response = await fetch('http://localhost:5000/api/auth/verify', {
+      const response = await fetch(`${BACKEND_URL}/api/auth/verify`, {
         headers: { 
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -33,7 +35,7 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (credentials) => {
     try {
-      const response = await fetch('http://localhost:5000/api/auth/login', {
+      const response = await fetch(`${BACKEND_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(credentials)
@@ -60,7 +62,7 @@ export const AuthProvider = ({ children }) => {
     try {
       const token = localStorage.getItem('token');
       if (token) {
-        await fetch('http://localhost:5000/api/auth/logout', {
+        await fetch(`${BACKEND_URL}/api/auth/logout`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -95,7 +97,7 @@ export const AuthProvider = ({ children }) => {
     setBalanceFetchLock(true);
 
     try {
-      const response = await fetch('http://localhost:5000/api/transactions/balance', {
+      const response = await fetch(`${BACKEND_URL}/api/transactions/balance`, {
         headers: { 
           Authorization: `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
