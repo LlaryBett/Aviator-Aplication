@@ -61,7 +61,7 @@ router.post('/register', async (req, res) => {
         avatar: user.avatar
       },
       // Optionally, generate a token here if you want to auto-login after register:
-      // token: jwt.sign({ userId: user._id }, process.env.JWT_SECRET)
+      // const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET)
       success: true,
       message: 'Registration successful! Please login.'
     });
