@@ -9,6 +9,7 @@ export const useBetManager = () => {
   const [balanceLock, setBalanceLock] = useState(false);
 
   const placeBet = useCallback(async (amount, autoCashout = null) => {
+    console.log('[useBetManager] placeBet called:', { amount, autoCashout });
     if (balanceLock) return false;
     setBalanceLock(true);
 
@@ -33,6 +34,7 @@ export const useBetManager = () => {
       });
 
       const data = await response.json();
+      console.log('[useBetManager] Backend response:', data);
       
       if (!response.ok) {
         throw new Error(data.error);
@@ -43,7 +45,7 @@ export const useBetManager = () => {
 
     } catch (error) {
       toast.error('Failed to place bet');
-      console.error('Bet error:', error);
+      console.error('[useBetManager] Bet error:', error);
       return false;
     } finally {
       setBalanceLock(false);

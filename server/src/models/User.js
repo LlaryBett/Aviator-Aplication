@@ -2,31 +2,32 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
 const userSchema = new mongoose.Schema({
-  username: { 
-    type: String, 
-    required: true, 
+  username: {
+    type: String,
+    required: true,
     unique: true,
     trim: true,
     minlength: 3,
     maxlength: 50
   },
-  email: { 
-    type: String, 
-    unique: true, 
-    sparse: true, // Allows multiple null emails
-    lowercase: true,
+  email: {
+    type: String,
+    sparse: true,  // Allows multiple null/empty values
+    unique: true,
     trim: true,
+    set: v => v === '' ? null : v, // Convert empty string to null
+    default: null,
     match: [/^\S+@\S+$/, 'Invalid email format']
   },
-  phone: { 
-    type: String, 
-    required: true, 
+  phone: {
+    type: String,
+    required: true,
     unique: true,
     trim: true,
     match: [/^\d{10,15}$/, 'Invalid phone format']
   },
-  password: { 
-    type: String, 
+  password: {
+    type: String,
     required: true,
     minlength: 6
   },

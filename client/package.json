@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.4",
+    "crypto-browserify": "^3.12.1",
     "crypto-js": "^4.2.0",
     "lodash": "^4.17.21",
     "lucide-react": "^0.503.0",

@@ -1,5 +1,4 @@
 const BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
-const WS_URL = BASE_URL.replace('http', 'ws').replace('https', 'wss');
 
 class ChatService {
   constructor() {
@@ -12,7 +11,8 @@ class ChatService {
       // Already connected or connecting
       return;
     }
-    this.socket = new WebSocket(`${WS_URL}/chat`);
+    const wsUrl = BASE_URL.replace('http', 'ws');
+    this.socket = new WebSocket(wsUrl);
 
     this.socket.onopen = () => {
       console.log('WebSocket connected');

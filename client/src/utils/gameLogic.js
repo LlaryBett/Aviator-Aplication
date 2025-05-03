@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { generateServerSeed, generateClientSeed, calculateCrashPoint } from './cryptoUtils';
+import { generateRandomSeed, calculateCrashPoint } from './cryptoUtils';
 
 // Constants
 const TICK_RATE = 50; // ms
@@ -9,22 +9,18 @@ const MAX_CRASH_MULTIPLIER = 1000.0;
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
 
 // Generate crash point using cryptographic hashes
-export const generateCrashPoint = () => {
-    const serverSeed = generateServerSeed();
-    const clientSeed = generateClientSeed();
-    
-    // Calculate raw crash point
-    const rawCrashPoint = calculateCrashPoint(serverSeed, clientSeed);
-    
-    // Apply max limit without affecting distribution
-    const finalCrashPoint = Math.min(rawCrashPoint, MAX_CRASH_MULTIPLIER);
-    
-    // Store verification data
-    window.localStorage.setItem('lastServerSeed', serverSeed);
-    window.localStorage.setItem('lastClientSeed', clientSeed);
-    window.localStorage.setItem('lastCrashPoint', finalCrashPoint.toString());
-    
-    return finalCrashPoint;
+export const generateCrashPoint = async () => {
+  const serverSeed = generateRandomSeed();
+  const clientSeed = generateRandomSeed();
+
+  const crashPoint = await calculateCrashPoint(serverSeed, clientSeed);
+
+  // Store for verification
+  window.localStorage.setItem('lastServerSeed', serverSeed);
+  window.localStorage.setItem('lastClientSeed', clientSeed);
+  window.localStorage.setItem('lastCrashPoint', crashPoint.toString());
+
+  return { crashPoint, serverSeed, clientSeed };
 };
 
 // Custom hook for game state management
@@ -37,16 +33,19 @@ export const useGameState = () => {
   const [players, setPlayers] = useState([]);
   const [gameTimer, setGameTimer] = useState(0);
   const [lastGameVerification, setLastGameVerification] = useState(null);
+  const [lastRoundSeeds, setLastRoundSeeds] = useState({ serverSeed: '', clientSeed: '', crashPoint: null });
 
   // Start a new game round
-  const startGame = useCallback(() => {
-    const newCrashPoint = generateCrashPoint();
-    setCrashPoint(newCrashPoint);
+  const startGame = useCallback(async () => {
+    const { crashPoint, serverSeed, clientSeed } = await generateCrashPoint();
+    setCrashPoint(crashPoint);
     setCurrentMultiplier(1.0);
     setIsGameActive(true);
     setGamePhase('flying');
     setGameTimer(0);
-    
+
+    setLastRoundSeeds({ serverSeed, clientSeed, crashPoint });
+
     // Reset player cash out status
     setPlayers(prevPlayers => 
       prevPlayers.map(player => ({
@@ -127,11 +126,27 @@ export const useGameState = () => {
   const cashOut = useCallback(async (playerId) => {
     if (!isGameActive || gamePhase !== 'flying') return;
 
-    try {
-      const player = players.find(p => p.id === playerId);
-      if (!player || player.isCashedOut) return;
+    const player = players.find(p => p.id === playerId);
+    if (!player) return;
 
+    // Prevent double cashout attempts
+    if (player.isCashedOut) {
+      console.warn(`[gameLogic] Cashout ignored: player ${playerId} already cashed out.`);
+      return;
+    }
+    if (!player.betId) {
+      console.warn(`[gameLogic] Cashout ignored: player ${playerId} has no betId.`);
+      return;
+    }
+
+    try {
       const winAmount = player.bet * currentMultiplier;
+
+      // You must have betId stored on the player object when the bet is placed!
+      if (!player.betId) {
+        console.error('No betId found for player:', playerId, player); // Log player object for debugging
+        throw new Error('No betId for cashout');
+      }
 
       const response = await fetch(`${BACKEND_URL}/api/transactions/win`, {
         method: 'POST',
@@ -140,7 +155,7 @@ export const useGameState = () => {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
         body: JSON.stringify({
-          betAmount: player.bet,
+          betId: player.betId, // <-- this is required!
           winAmount,
           multiplier: currentMultiplier
         })
@@ -160,45 +175,38 @@ export const useGameState = () => {
   }, [isGameActive, gamePhase, currentMultiplier, players]);
   
   // Place a bet
-  const placeBet = useCallback(async (playerId, amount, autoCashout = null) => {
-    if (gamePhase !== 'waiting') return;
+  const placeBet = useCallback((playerId, amount, autoCashout = null, betId = null) => {
+    // Only update local players state, do NOT call backend here!
+    setPlayers(prevPlayers => {
+      const existingPlayerIndex = prevPlayers.findIndex(p => p.id === playerId);
+      const playerData = {
+        id: playerId,
+        bet: amount,
+        autoCashout,
+        isCashedOut: false,
+        multiplier: null,
+        winAmount: null,
+        betId // <-- ensure betId is set if provided
+      };
 
-    try {
-      // Record bet transaction first
-      const response = await fetch(`${BACKEND_URL}/api/transactions/bet`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({ amount, autoCashout })
-      });
+      if (existingPlayerIndex >= 0) {
+        return prevPlayers.map((p, i) => 
+          i === existingPlayerIndex ? { ...p, ...playerData } : p
+        );
+      }
+      return [...prevPlayers, playerData];
+    });
+  }, []);
 
-      if (!response.ok) throw new Error('Failed to place bet');
-      
-      // Update players after successful transaction
-      setPlayers(prevPlayers => {
-        const existingPlayerIndex = prevPlayers.findIndex(p => p.id === playerId);
-        const playerData = {
-          id: playerId,
-          bet: amount,
-          autoCashout,
-          isCashedOut: false,
-          multiplier: null,
-          winAmount: null
-        };
-
-        if (existingPlayerIndex >= 0) {
-          return prevPlayers.map((p, i) => 
-            i === existingPlayerIndex ? { ...p, ...playerData } : p
-          );
-        }
-        return [...prevPlayers, playerData];
-      });
-    } catch (error) {
-      console.error('Bet error:', error);
-    }
-  }, [gamePhase]);
+  // Update player's betId after a successful bet
+  const setPlayerBetId = useCallback((playerId, betId) => {
+    setPlayers(prevPlayers =>
+      prevPlayers.map(player =>
+        player.id === playerId ? { ...player, betId } : player
+      )
+    );
+    console.log(`[gameLogic] setPlayerBetId: playerId=${playerId}, betId=${betId}`);
+  }, []);
   
   // Initialize the game
   useEffect(() => {
@@ -251,8 +259,10 @@ export const useGameState = () => {
     gameTimer,
     startGame,
     cashOut,
-    placeBet,
+    placeBet, // <-- now accepts betId as optional 4th argument
+    setPlayerBetId,
     lastGameVerification,
+    lastRoundSeeds,
     verifyLastGame: () => {
       const serverSeed = window.localStorage.getItem('lastServerSeed');
       const clientSeed = window.localStorage.getItem('lastClientSeed');

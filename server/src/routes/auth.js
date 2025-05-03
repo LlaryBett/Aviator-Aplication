@@ -5,28 +5,73 @@ const mongoose = require('mongoose');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
 const auth = require('../middleware/auth');
+const TransactionService = require('../services/transactionService');
+
+// Helper function to calculate balance
+const calculateBalance = async (userId) => {
+  const transactions = await Transaction.aggregate([
+    { 
+      $match: { 
+        userId: new mongoose.Types.ObjectId(userId), // Only this user's transactions
+        status: 'completed'
+      }
+    },
+    { 
+      $group: {
+        _id: null,
+        total: {
+          $sum: {
+            $cond: [
+              { $in: ['$type', ['deposit', 'win']] },
+              '$amount',
+              { $multiply: ['$amount', -1] }
+            ]
+          }
+        }
+      }
+    }
+  ]);
+  return transactions.length > 0 ? transactions[0].total : 0;
+};
 
 // Register a new user
 router.post('/register', async (req, res) => {
   console.log('Registration attempt:', req.body);
   try {
-    // Check if user exists
-    const existingUser = await User.findOne({
+    // Normalize email field
+    const normalizedData = {
+      ...req.body,
+      email: req.body.email || null // Convert empty string to null
+    };
+
+    // Check for existing user
+    const query = {
       $or: [
-        { email: req.body.email },
-        { phone: req.body.phone },
-        { username: req.body.username }
+        { phone: normalizedData.phone },
+        { username: normalizedData.username }
       ]
-    });
+    };
+    
+    // Only check email if it's not null
+    if (normalizedData.email) {
+      query.$or.push({ email: normalizedData.email });
+    }
+
+    const existingUser = await User.findOne(query);
 
     if (existingUser) {
-      console.log('Registration failed: User already exists');
+      let conflictField = '';
+      if (existingUser.email === normalizedData.email && normalizedData.email) conflictField = 'email';
+      if (existingUser.phone === normalizedData.phone) conflictField = 'phone';
+      if (existingUser.username === normalizedData.username) conflictField = 'username';
+
+      console.log(`Registration failed: User exists with ${conflictField}`);
       return res.status(400).json({ 
-        error: 'User already exists with this email, phone, or username' 
+        error: `User already exists with this ${conflictField}` 
       });
     }
 
-    const user = new User(req.body);
+    const user = new User(normalizedData);
     console.log('New user object created:', user);
 
     await user.save();
@@ -38,7 +83,7 @@ router.post('/register', async (req, res) => {
         _id: user._id,
         username: user.username,
         email: user.email,
-        phone: req.body.phone,
+        phone: normalizedData.phone,
         balance: 0,
         avatar: user.avatar
       },
@@ -57,28 +102,68 @@ router.post('/register', async (req, res) => {
 // Login an existing user
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
-    const user = await User.findOne({ email }).select('+password'); // Include password
-    if (!user || !(await user.comparePassword(password))) {
+    const { email, password, phone } = req.body;
+    console.log('👤 Login attempt:', { email, phone });
+
+    let query = {};
+    if (email) {
+      query = { email };
+    } else if (phone) {
+      query = { phone };
+    } else {
+      return res.status(400).json({ error: 'Email or phone is required' });
+    }
+
+    const user = await User.findOne(query).select('+password'); // Include password
+
+    if (!user) {
+      console.log('❌ Login failed: User not found');
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // Add this line to check if JWT_SECRET is defined
-    console.log("JWT_SECRET from env:", process.env.JWT_SECRET);
+    console.log('✅ Found user:', {
+      userId: user._id.toString(),
+      username: user.username,
+      phone: user.phone
+    });
 
-    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '24h' });
-    res.json({ 
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) {
+      console.log('Login failed: Incorrect password');
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Get user's transactions and balance
+    const transactions = await TransactionService.getUserTransactions(user._id);
+    const balance = await TransactionService.calculateUserBalance(user._id);
+
+    console.log('👤 User login details:', {
+      userId: user._id,
+      username: user.username,
+      transactionCount: transactions.length,
+      calculatedBalance: balance
+    });
+
+    console.log('Login Debug - Secret:', process.env.JWT_SECRET ? 'Secret exists' : 'NO SECRET!');
+    const token = jwt.sign(
+      { userId: user._id }, 
+      process.env.JWT_SECRET || 'aviatorsecret'
+    );
+
+    // Always return a fresh user object and token
+    res.json({
       user: {
         _id: user._id,
         username: user.username,
         email: user.email,
         phone: user.phone,
-        balance: user.balance,
+        balance: balance,
         avatar: user.avatar
       },
-      token 
+      token
     });
   } catch (error) {
+    console.error('Login Error:', error);
     res.status(401).json({ error: error.message });
   }
 });

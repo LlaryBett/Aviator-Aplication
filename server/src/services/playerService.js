@@ -47,38 +47,24 @@ class PlayerService {
     }
   }
 
-  updatePlayerBet(userId, betData) {
-    const player = this.activePlayers.get(userId);
-    if (player) {
-      player.lastActive = Date.now();
-      player.status = 'betting';
-      player.betAmount = Number(betData.amount);
-      player.autoCashout = betData.autoCashout;
-      player.currentMultiplier = 1.0;
-      player.lastBetTime = Date.now();
-      player.crashPoint = this.generateCrashPoint();
+  async updatePlayerBet(userId, betData) {
+    try {
+      // DO NOT do this:
+      // user.balance -= betData.amount;
 
-      console.log('Player bet updated:', {
-        userId,
-        status: player.status,
-        betAmount: player.betAmount,
-        currentMultiplier: player.currentMultiplier
+      // Only update player state, not balance
+      const player = this.activePlayers.get(userId);
+      if (player) {
+        player.currentBet = betData.amount;
+        player.autoCashout = betData.autoCashout;
+        player.lastBetTime = Date.now();
+      }
+      console.log('🎮 Updated player bet state:', { 
+        userId, 
+        amount: betData.amount 
       });
-
-      // Log all active players and their bet amounts for debugging
-      console.log('--- Active Players State ---');
-      Array.from(this.activePlayers.values()).forEach(p => {
-        console.log({
-          id: p.id,
-          username: p.username,
-          status: p.status,
-          betAmount: p.betAmount,
-          currentMultiplier: p.currentMultiplier
-        });
-      });
-      console.log('----------------------------');
-
-      this.broadcastActivePlayers();
+    } catch (error) {
+      console.error('Player bet update error:', error);
     }
   }
 

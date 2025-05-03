@@ -7,6 +7,7 @@ const apiRoutes = require('./src/routes/api');
 const websocketHandler = require('./src/routes/websocket');
 const authRoutes = require('./src/routes/auth');
 const transactionRoutes = require('./src/routes/transactions');
+const chatRoutes = require('./src/routes/chat');
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 
 // Add this debug logging
@@ -16,7 +17,7 @@ console.log('MONGODB_URI:', process.env.MONGODB_URI ? 'Is set' : 'NOT SET');
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({ server }); // No path, listens on ws://localhost:5000/
 app.set('wss', wss); // Make WebSocket server available to routes
 
 // Middleware
@@ -46,30 +47,43 @@ app.use(express.json());
 app.use('/api', apiRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/transactions', transactionRoutes);
+app.use('/api/chat', chatRoutes);
 
 // WebSocket server setup with error handling
 wss.on('connection', (ws) => {
-  console.log('🔌 New client connected');
+  console.log('🔌 WebSocket client connected');
   
+  ws.isAlive = true;
+  ws.on('pong', () => ws.isAlive = true);
+
+  ws.on('message', (msg) => {
+    // ...handle messages...
+  });
+
   ws.on('error', (error) => {
     console.error('WebSocket error:', error);
   });
 
   ws.on('close', () => {
-    console.log('🔌 Client disconnected');
+    console.log('🔌 WebSocket client disconnected');
   });
 
   websocketHandler(ws, wss);
 });
 
-// Add heartbeat to prevent disconnections
-setInterval(() => {
+// Add ping interval to keep connections alive
+const pingInterval = setInterval(() => {
   wss.clients.forEach((ws) => {
     if (ws.isAlive === false) return ws.terminate();
     ws.isAlive = false;
     ws.ping();
   });
 }, 30000);
+
+// Clean up on server close
+server.on('close', () => {
+  clearInterval(pingInterval);
+});
 
 // Database connection
 mongoose.connect(process.env.MONGODB_URI, {
@@ -86,9 +100,8 @@ mongoose.connection.on('error', (err) => {
   console.error('❌ MongoDB connection error:', err);
 });
 
-const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+server.listen(process.env.PORT || 5000, () => {
+  console.log(`Server running on port ${process.env.PORT || 5000}`);
 });
 
 // Yes, this file (server.js) is the main entry point for your entire backend server.

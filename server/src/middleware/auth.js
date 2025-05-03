@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
 const auth = async (req, res, next) => {
+  console.log('[auth middleware] Checking authentication for:', req.originalUrl);
   try {
     const authHeader = req.header('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {

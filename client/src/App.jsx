@@ -23,12 +23,13 @@ const App = memo(function App() {
     placeBet
   } = useGameState();
   
-  const { user, isLoading, logout, fetchBalance, updateBalance } = useAuth();
+  const { user, isLoading, logout, fetchBalance } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [showAccountMenu, setShowAccountMenu] = useState(false);
   const [activePlayers, setActivePlayers] = useState([]);
+  const [cashedOutBets, setCashedOutBets] = useState([]); // Track cashed out betIds
 
   useEffect(() => {
     if (gamePhase === 'waiting') {
@@ -39,19 +40,30 @@ const App = memo(function App() {
   const handleBet = (panelId, amount, autoCashout, betData) => {
     if (betData) {
       handlePlayerBet(betData);
+      // Always pass betId to placeBet if available
+      const playerId = `player${panelId}`;
+      placeBet(playerId, amount, autoCashout, betData.betId || null);
+    } else {
+      const playerId = `player${panelId}`;
+      placeBet(playerId, amount, autoCashout);
     }
-    const playerId = `player${panelId}`;
-    placeBet(playerId, amount, autoCashout);
   };
 
   const handleCashout = (panelId, betId, winAmount, multiplier, status = 'cashed_out') => {
+    console.trace('[App] handleCashout called', { panelId, betId, winAmount, multiplier, status });
+    // Prevent double cashout for the same betId
+    if (!betId || cashedOutBets.includes(betId)) return;
+    setCashedOutBets(prev => [...prev, betId]);
+
     const playerId = `player${panelId}`;
-    cashOut(playerId);
+    cashOut(playerId); // If your cashOut supports betId, pass it here
+
     handlePlayerUpdate(betId, status, winAmount, multiplier);
 
     // Remove player after 3 seconds
     setTimeout(() => {
       setActivePlayers(prev => prev.filter(player => player.betId !== betId));
+      setCashedOutBets(prev => prev.filter(id => id !== betId));
     }, 3000);
   };
 
@@ -112,30 +124,6 @@ const App = memo(function App() {
       fetchBalance();
     }
   }, [user?._id, fetchBalance]);
-
-  useEffect(() => {
-    const fetchUserBalance = async () => {
-      try {
-        const response = await fetch(`${BACKEND_URL}/api/transactions/balance`, {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          }
-        });
-        const data = await response.json();
-        if (response.ok) {
-          updateBalance(data.balance);
-          console.log('Balance updated:', data.balance);
-        }
-      } catch (error) {
-        console.error('Balance fetch error:', error);
-      }
-    };
-    if (user) {
-      fetchUserBalance();
-      const interval = setInterval(fetchUserBalance, 5000);
-      return () => clearInterval(interval);
-    }
-  }, [user, updateBalance]);
 
   const formatBalance = (balance) => {
     return typeof balance === 'number' ? balance.toFixed(2) : '0.00';

@@ -1,4 +1,5 @@
 const playerService = require('./services/playerService');
+const chatRoutes = require('./routes/chat');
 
 wss.on('connection', (ws) => {
   console.log('🔌 New client connected');
@@ -51,3 +52,5 @@ setInterval(() => {
     ws.ping(); // Send a ping to check if the connection is alive
   });
 }, 30000); // Run every 30 seconds
+
+app.use('/api/chat', chatRoutes);

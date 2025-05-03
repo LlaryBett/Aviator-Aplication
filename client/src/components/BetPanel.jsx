@@ -1,84 +1,225 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { Timer, Rocket, RotateCcw, DollarSign } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useBetManager } from '../hooks/useBetManager';
 import { toast } from 'react-hot-toast';
+import { useGameState } from '../utils/gameLogic';
+import { BetIdValidator } from '../utils/betIdValidator';
 
 const BetPanel = ({ panelId, gamePhase, currentMultiplier, onPlaceBet, onCashOut }) => {
   const { user } = useAuth();
   const { placeBet, cashOut, handleLoss, isLocked } = useBetManager();
-  
+  const { setPlayerBetId } = useGameState();
+
   const [betInfo, setBetInfo] = useState({
     amount: 10,
     autoCashout: null,
     isActive: false,
     betId: null
   });
+  const [isPlacingBet, setIsPlacingBet] = useState(false);
+  const [isCashingOut, setIsCashingOut] = useState(false);
+  const [autoBetNextRound, setAutoBetNextRound] = useState(false);
 
-  // Handle placing bet
+  const prevGamePhase = useRef();
+  const betDebounceRef = useRef(false);
+
+  useEffect(() => {
+    const playerKey = `player${panelId}`;
+    const storedBetId = BetIdValidator.getBetId(playerKey);
+
+    if (
+      storedBetId &&
+      gamePhase === 'flying' &&
+      prevGamePhase.current !== 'flying'
+    ) {
+      console.log(`[BetPanel ${panelId}] Initializing bet state:`, {
+        betId: storedBetId,
+        gamePhase,
+        multiplier: currentMultiplier
+      });
+
+      setPlayerBetId(playerKey, storedBetId);
+
+      setBetInfo(prev => ({
+        ...prev,
+        betId: storedBetId,
+        isActive: true
+      }));
+    }
+
+    prevGamePhase.current = gamePhase;
+  }, [panelId, gamePhase, setPlayerBetId]);
+
+  useEffect(() => {
+    const playerKey = `player${panelId}`;
+    if (betInfo.betId) {
+      console.log(`[BetPanel ${panelId}] Updating stored betId:`, betInfo.betId);
+      BetIdValidator.storeBetId(playerKey, betInfo.betId);
+      setPlayerBetId(playerKey, betInfo.betId);
+    } else {
+      console.log(`[BetPanel ${panelId}] Clearing stored betId`);
+      BetIdValidator.clearBetId(playerKey);
+    }
+  }, [betInfo.betId, panelId, setPlayerBetId]);
+
+  useEffect(() => {
+    return () => {
+      const playerKey = `player${panelId}`;
+      BetIdValidator.clearBetId(playerKey);
+    };
+  }, [panelId]);
+
+  useEffect(() => {
+    if (
+      autoBetNextRound &&
+      gamePhase === 'waiting' &&
+      !betInfo.isActive &&
+      !isPlacingBet
+    ) {
+      // Place bet automatically at start of round
+      setTimeout(() => {
+        handlePlaceBet();
+      }, 200);
+    }
+  }, [autoBetNextRound, gamePhase]);
+
+  useEffect(() => {
+    if (
+      betInfo.isActive &&
+      betInfo.autoCashout &&
+      gamePhase === 'flying' &&
+      currentMultiplier >= betInfo.autoCashout &&
+      !isCashingOut
+    ) {
+      handleCashOut();
+    }
+  }, [betInfo.isActive, betInfo.autoCashout, currentMultiplier, gamePhase, isCashingOut]);
+
   const handlePlaceBet = async () => {
-    if (!user || user.balance < betInfo.amount) {
-      toast.error(`Insufficient balance! Need at least ${betInfo.amount} KES`);
+    if (isPlacingBet || isCashingOut || betDebounceRef.current || !user || user.balance < betInfo.amount) {
+      return;
+    }
+    if (isLocked) return;
+
+    betDebounceRef.current = true;
+    setTimeout(() => { betDebounceRef.current = false; }, 1000); // 1 second debounce
+
+    try {
+      setIsPlacingBet(true);
+      console.log('[BetPanel] Placing bet:', { amount: betInfo.amount, autoCashout: betInfo.autoCashout });
+      
+      const result = await placeBet(betInfo.amount, betInfo.autoCashout);
+      
+      if (result.success && result.betId) {
+        const playerKey = `player${panelId}`;
+        
+        BetIdValidator.storeBetId(playerKey, result.betId);
+        setPlayerBetId(playerKey, result.betId);
+        
+        console.log(`[BetPanel ${panelId}] Bet placed and validated:`, {
+          betId: result.betId,
+          isStored: BetIdValidator.validateBetId(playerKey, result.betId)
+        });
+
+        setBetInfo((prev) => ({
+          ...prev,
+          isActive: true,
+          betId: result.betId,
+        }));
+
+        onPlaceBet(betInfo.amount, betInfo.autoCashout, {
+          betId: result.betId,
+          username: user.username,
+          avatar: user.avatar,
+          betAmount: betInfo.amount,
+          status: 'betting',
+          autoCashout: betInfo.autoCashout,
+        });
+
+      } else {
+        throw new Error('No betId received from backend');
+      }
+    } catch (error) {
+      console.error('[BetPanel] Bet placement failed:', error);
+      toast.error('Failed to place bet');
+    } finally {
+      setIsPlacingBet(false);
+    }
+  };
+
+  const handleCashOut = async () => {
+    console.trace('[BetPanel] handleCashOut called', { panelId, betInfo, gamePhase });
+    const playerKey = `player${panelId}`;
+    const storedBetId = BetIdValidator.getBetId(playerKey);
+
+    if (
+      !betInfo.isActive ||
+      gamePhase !== 'flying' ||
+      isLocked ||
+      (!betInfo.betId && !storedBetId) ||
+      isCashingOut
+    ) {
+      console.log(`[BetPanel ${panelId}] Cashout blocked:`, { 
+        isActive: betInfo.isActive, 
+        gamePhase, 
+        isLocked,
+        betInfoBetId: betInfo.betId,
+        storedBetId
+      });
       return;
     }
 
-    if (isLocked) return;
+    setIsCashingOut(true);
 
-    const result = await placeBet(betInfo.amount, betInfo.autoCashout);
-    if (result.success) {
-      setBetInfo((prev) => ({
-        ...prev,
-        isActive: true,
-        betId: result.betId,
-      }));
-
-      // Emit player data for LivePlayers
-      const betData = {
-        betId: result.betId,
-        username: user.username,
-        avatar: user.avatar,
-        betAmount: betInfo.amount,
-        status: 'betting',
-        autoCashout: betInfo.autoCashout,
-      };
-
-      onPlaceBet(betInfo.amount, betInfo.autoCashout, betData);
+    const activeBetId = betInfo.betId || storedBetId;
+    if (!activeBetId) {
+      console.error(`[BetPanel ${panelId}] No valid betId for cashout`);
+      toast.error('Cannot process cashout - no active bet found');
+      setIsCashingOut(false);
+      return;
     }
-  };
-
-  // Handle cashout
-  const handleCashOut = async () => {
-    if (!betInfo.isActive || gamePhase === 'crashed' || isLocked) return;
 
     try {
-      const success = await cashOut(
-        betInfo.betId,
-        betInfo.amount,
-        currentMultiplier
-      );
+      console.log(`[BetPanel ${panelId}] Processing cashout:`, {
+        betId: activeBetId,
+        amount: betInfo.amount,
+        multiplier: currentMultiplier
+      });
+
+      setBetInfo(prev => ({ ...prev, isActive: false }));
+
+      const success = await cashOut(activeBetId, betInfo.amount, currentMultiplier);
 
       if (success) {
-        setBetInfo((prev) => ({ ...prev, isActive: false }));
+        const winAmount = betInfo.amount * currentMultiplier;
 
-        // Emit cashout data for LivePlayers
-        onCashOut(
-          betInfo.betId,
-          betInfo.amount * currentMultiplier,
-          currentMultiplier
-        );
+        onCashOut(activeBetId, winAmount, currentMultiplier);
+
+        BetIdValidator.clearBetId(playerKey);
+        setPlayerBetId(playerKey, null);
+
+        setBetInfo(prev => ({ 
+          ...prev, 
+          betId: null 
+        }));
+
+        toast.success(`Won ${winAmount.toFixed(2)} KES!`);
       } else {
-        setBetInfo((prev) => ({ ...prev, isActive: false }));
-        onCashOut(betInfo.betId, 0, 0, 'failed_cashout');
-        throw new Error('Cashout returned false');
+        throw new Error('Cashout failed');
       }
     } catch (error) {
-      console.error('Cashout failed:', error);
+      console.error(`[BetPanel ${panelId}] Cashout error:`, error);
       toast.error('Failed to process win - please try again');
+      setBetInfo(prev => ({ ...prev, isActive: false, betId: null }));
+      BetIdValidator.clearBetId(playerKey);
+      setPlayerBetId(playerKey, null);
+    } finally {
+      setIsCashingOut(false);
     }
   };
 
-  // Handle game crash
   useEffect(() => {
     if (gamePhase === 'crashed' && betInfo.isActive && betInfo.betId) {
       handleLoss(betInfo.betId);
@@ -87,12 +228,14 @@ const BetPanel = ({ panelId, gamePhase, currentMultiplier, onPlaceBet, onCashOut
   }, [gamePhase, betInfo.isActive, betInfo.betId, handleLoss]);
 
   const isPanelActive = betInfo.isActive;
-  const canCashOut = isPanelActive && gamePhase === 'flying';
+  const canCashOut = isPanelActive && gamePhase === 'flying' && !isCashingOut;
   const canBet = !isPanelActive && gamePhase === 'waiting';
   
   const potentialWin = isPanelActive ? 
     (betInfo.amount * (betInfo.autoCashout || currentMultiplier)).toFixed(2) : 
     (betInfo.amount * 2).toFixed(2);
+
+  const isBetDisabled = isPlacingBet || !user || user.balance < betInfo.amount;
 
   return (
     <>
@@ -180,8 +323,8 @@ const BetPanel = ({ panelId, gamePhase, currentMultiplier, onPlaceBet, onCashOut
           <input
             id={`autoBet-${panelId}`}
             type="checkbox"
-            checked={betInfo.autoCashout}
-            onChange={() => setBetInfo(prev => ({ ...prev, autoCashout: !betInfo.autoCashout }))}
+            checked={autoBetNextRound}
+            onChange={() => setAutoBetNextRound(v => !v)}
             disabled={isPanelActive}
             className="h-4 w-4 rounded border-gray-500 text-teal-600 focus:ring-teal-500 bg-gray-700"
           />
@@ -199,17 +342,23 @@ const BetPanel = ({ panelId, gamePhase, currentMultiplier, onPlaceBet, onCashOut
           {canBet ? (
             <button
               onClick={handlePlaceBet}
-              className="col-span-2 flex items-center justify-center py-2 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded transition-colors"
+              disabled={isBetDisabled}
+              className={`col-span-2 flex items-center justify-center py-2 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded transition-colors ${isBetDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              <Rocket size={16} className="mr-1" />
-              Place Bet
+              {isPlacingBet ? 'Placing Bet...' : (
+                <>
+                  <Rocket size={16} className="mr-1" />
+                  Place Bet
+                </>
+              )}
             </button>
           ) : canCashOut ? (
             <button
               onClick={handleCashOut}
-              className="col-span-2 flex items-center justify-center py-2 px-4 bg-green-600 hover:bg-green-700 text-white font-medium rounded transition-colors animate-pulse"
+              disabled={isCashingOut}
+              className={`col-span-2 flex items-center justify-center py-2 px-4 bg-green-600 hover:bg-green-700 text-white font-medium rounded transition-colors animate-pulse ${isCashingOut ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              Cash Out ({currentMultiplier.toFixed(2)}x)
+              {isCashingOut ? 'Processing...' : <>Cash Out ({currentMultiplier.toFixed(2)}x)</>}
             </button>
           ) : (
             <button

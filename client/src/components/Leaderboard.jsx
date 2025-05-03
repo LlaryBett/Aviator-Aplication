@@ -1,109 +1,123 @@
-import React, { useState, useEffect } from 'react';
-import { Trophy, Medal } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Trophy, Award } from 'lucide-react';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
 
 const Leaderboard = () => {
-  const [players, setPlayers] = useState([]);
+  const [leaders, setLeaders] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchLeaderboard = async () => {
-      try {
-        const response = await fetch(`${BACKEND_URL}/api/leaderboard`);
-        const data = await response.json();
-        // Ensure we're using the leaderboard array from the response
-        setPlayers(data.leaderboard || []);
-        setLoading(false);
-      } catch (error) {
-        console.error('Failed to fetch leaderboard:', error);
-        setLoading(false);
+  const fetchLeaderboard = useCallback(async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/transactions/leaderboard`);
+      const data = await response.json();
+      if (Array.isArray(data)) {
+        setLeaders(data);
+      } else {
+        setLeaders([]);
+        console.error('Leaderboard API did not return an array:', data);
       }
-    };
-
-    fetchLeaderboard();
-    // Refresh leaderboard every 30 seconds
-    const interval = setInterval(fetchLeaderboard, 30000);
-    return () => clearInterval(interval);
+      setLoading(false);
+    } catch (error) {
+      setLeaders([]);
+      console.error('Leaderboard fetch error:', error);
+      setLoading(false);
+    }
   }, []);
 
-  // Function to get medal icon and style for top 3 players
-  const getMedalForRank = (rank) => {
-    if (rank === 0) return <Medal size={16} className="text-yellow-400" />;
-    if (rank === 1) return <Medal size={16} className="text-gray-300" />;
-    if (rank === 2) return <Medal size={16} className="text-amber-600" />;
-    return null;
-  };
+  useEffect(() => {
+    let ws = null;
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 5;
+
+    const connectWebSocket = () => {
+        const wsUrl = BACKEND_URL.replace('http', 'ws');
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+            console.log('✅ Leaderboard WebSocket connected');
+            reconnectAttempts = 0;
+            fetchLeaderboard();
+        };
+
+        ws.onclose = () => {
+            console.log('❌ Leaderboard WebSocket closed');
+            if (reconnectAttempts < maxReconnectAttempts) {
+                reconnectAttempts++;
+                setTimeout(connectWebSocket, 1000 * reconnectAttempts);
+            }
+        };
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === 'leaderboard_update') {
+                fetchLeaderboard();
+            }
+        };
+    };
+
+    connectWebSocket();
+    
+    return () => {
+        if (ws) {
+            ws.close();
+        }
+    };
+  }, [fetchLeaderboard]);
 
   if (loading) {
     return (
-      <div className="bg-gray-800/90 backdrop-blur-md border border-gray-700 rounded-lg p-4">
-        <div className="flex items-center justify-center h-[300px] text-gray-400">
-          Loading leaderboard...
+      <div className="bg-gray-800 rounded-lg p-4">
+        <h2 className="text-lg font-semibold mb-4 flex items-center">
+          <Trophy className="mr-2 text-yellow-500" />
+          Top Winners
+        </h2>
+        <div className="animate-pulse space-y-2">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="h-10 bg-gray-700 rounded"></div>
+          ))}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="bg-gray-800/90 backdrop-blur-md border border-gray-700 rounded-lg p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-lg font-semibold text-white flex items-center">
-          <Trophy size={18} className="mr-2 text-yellow-500" />
-          Leaderboard
-        </h3>
-        <div className="text-xs text-gray-400">
-          Daily Top Winners
-        </div>
-      </div>
-
-      <div className="overflow-y-auto max-h-[300px]">
-        <table className="w-full">
-          <thead>
-            <tr className="text-left text-gray-400 border-b border-gray-700">
-              <th className="pb-2 w-14 text-xs">Rank</th>
-              <th className="pb-2 w-32 text-xs">Player</th>
-              <th className="pb-2 text-right text-xs">Won (KES)</th>
-              <th className="pb-2 text-right hidden sm:table-cell text-xs">Best (KES)</th>
-              <th className="pb-2 text-right hidden sm:table-cell w-12 text-xs">Games</th>
-            </tr>
-          </thead>
-          <tbody>
-            {players.map((player, index) => (
-              <tr
-                key={player._id}
-                className={`border-b border-gray-700/50 ${
-                  index === 0 ? 'bg-yellow-500/10' : ''
-                }`}
-              >
-                <td className="py-1.5 font-medium text-xs">
-                  {getMedalForRank(index) || <span className="ml-1">{index + 1}</span>}
-                </td>
-                <td className="py-1.5">
-                  <div className="flex items-center gap-1.5">
-                    <img
-                      src={player.avatar}
-                      alt={player.username}
-                      className="w-5 h-5 rounded-full"
-                    />
-                    <span className="text-white text-xs font-medium truncate">{player.username}</span>
-                  </div>
-                </td>
-                <td className="py-1.5 text-teal-400 font-medium text-right text-xs">
-                  <span className="text-gray-400 mr-0.5">K</span>
-                  {player.stats.totalWinnings.toLocaleString()}
-                </td>
-                <td className="py-1.5 text-white hidden sm:table-cell text-right text-xs">
-                  <span className="text-gray-400 mr-0.5">K</span>
-                  {player.stats.biggestWin.toLocaleString()}
-                </td>
-                <td className="py-1.5 text-gray-400 hidden sm:table-cell text-right text-xs">
-                  {player.stats.gamesPlayed}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div className="bg-gray-800 rounded-lg p-4">
+      <h2 className="text-lg font-semibold mb-4 flex items-center">
+        <Trophy className="mr-2 text-yellow-500" />
+        Top Winners
+      </h2>
+      <div className="space-y-2">
+        {Array.isArray(leaders) && leaders.length > 0 ? (
+          leaders.map((player, index) => (
+            <div 
+              key={player._id}
+              className="flex items-center justify-between p-2 rounded bg-gray-700/50 hover:bg-gray-700"
+            >
+              <div className="flex items-center">
+                <span className="w-6 text-gray-400">
+                  {index + 1}.
+                </span>
+                <span className="font-medium">
+                  {player.username || 'Anonymous'}
+                </span>
+              </div>
+              <div className="text-right">
+                <div className="text-sm font-medium text-teal-400">
+                  KES {player.totalWinnings?.toLocaleString()}
+                </div>
+                <div className="text-xs text-gray-400 flex items-center">
+                  <Award size={12} className="mr-1" />
+                  {player.winCount} wins
+                </div>
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="text-center text-gray-500 py-4">
+            No winners yet
+          </div>
+        )}
       </div>
     </div>
   );

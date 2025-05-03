@@ -22,36 +22,34 @@ const transactionSchema = new mongoose.Schema({
     enum: ['pending', 'completed', 'failed'],
     default: 'pending'
   },
-  description: {
-    type: String,
-    maxlength: 255,
-    trim: true
-  },
-  relatedTransaction: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Transaction',
-    default: null
-  }
+  balanceAfter: Number,
+  phoneNumber: String
 }, { 
   timestamps: true,
-  toJSON: { virtuals: true },
-  toObject: { virtuals: true }
+  strict: true
 });
 
-// Add compound index for faster queries
-transactionSchema.index({ userId: 1, type: 1, status: 1 });
-
-// Middleware to update user balance
-transactionSchema.post('save', async function() {
-  if (this.status === 'completed') {
+// Add pre-save middleware to validate userId
+transactionSchema.pre('save', async function(next) {
+  if (this.isNew) {
+    console.log('🔍 Validating transaction user:', this.userId);
     const User = mongoose.model('User');
     const user = await User.findById(this.userId);
-    if (user) {
-      const modifier = ['deposit', 'win'].includes(this.type) ? 1 : -1;
-      user.balance += (this.amount * modifier);
-      await user.save();
+    
+    if (!user) {
+      console.error('❌ Invalid userId:', this.userId);
+      throw new Error('Invalid userId for transaction');
     }
+    
+    console.log('✅ Valid user found for transaction:', {
+      userId: user._id,
+      username: user.username
+    });
   }
+  next();
 });
+
+// Add index for faster queries
+transactionSchema.index({ userId: 1, status: 1, type: 1 });
 
 module.exports = mongoose.model('Transaction', transactionSchema);

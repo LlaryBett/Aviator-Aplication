@@ -1,6 +1,7 @@
 const gameService = require('../services/gameService');
 const chatService = require('../services/chatService');
 const playerService = require('../services/playerService');
+const ChatMessage = require('../models/ChatMessage');
 
 // Initial chat messages
 const initialMessages = [
@@ -8,7 +9,7 @@ const initialMessages = [
     id: 'welcome-1',
     text: 'Welcome to Aviator Game Chat! 🎮',
     username: 'System',
-    timestamp: Date.now(),
+    timestamp: new Date().toISOString(), // Use ISO string for consistent timing
     avatar: 'https://i.pravatar.cc/150?u=system'
   },
   {
@@ -19,6 +20,28 @@ const initialMessages = [
     avatar: 'https://i.pravatar.cc/150?u=system'
   }
 ];
+
+const messageQueue = [];
+const MAX_MESSAGES = 100; // Keep last 100 messages
+
+function broadcastMessage(wss, message) {
+  // Add to queue and maintain max size
+  messageQueue.push(message);
+  if (messageQueue.length > MAX_MESSAGES) {
+    messageQueue.shift();
+  }
+
+  // Broadcast to all clients
+  wss.clients.forEach(client => {
+    if (client.readyState === 1) {
+      client.send(JSON.stringify({
+        type: 'chat_message',
+        message,
+        timestamp: Date.now() // Add server timestamp
+      }));
+    }
+  });
+}
 
 module.exports = function(ws, wss) {
   console.log('🔌 New WebSocket connection attempt');
@@ -38,7 +61,7 @@ module.exports = function(ws, wss) {
     // Then send chat history
     ws.send(JSON.stringify({
       type: 'chat_history',
-      messages: [...initialMessages]
+      messages: [...initialMessages, ...messageQueue].sort((a, b) => a.timestamp - b.timestamp)
     }));
 
     console.log('✅ Client connection established:', ws.id);
@@ -61,11 +84,37 @@ module.exports = function(ws, wss) {
   ws.on('message', async (message) => {
     try {
       const data = JSON.parse(message);
-      console.log('📨 Received message:', data);
+      console.log('📨 New chat message:', {
+        type: data.type,
+        username: data.username,
+        messagePreview: data.message?.substring(0, 30)
+      });
       
       switch(data.type) {
         case 'chat_message':
-          await chatService.broadcastMessage(data.message, ws);
+          // Save to DB (optional)
+          const chatMessage = new ChatMessage({
+            userId: data.userId,
+            username: data.username,
+            message: data.message,
+            timestamp: Date.now()
+          });
+          await chatMessage.save();
+
+          // Broadcast to all clients
+          wss.clients.forEach(client => {
+            if (client.readyState === 1) {
+              client.send(JSON.stringify({
+                type: 'chat_message',
+                message: {
+                  _id: chatMessage._id,
+                  username: chatMessage.username,
+                  message: chatMessage.message,
+                  timestamp: chatMessage.timestamp
+                }
+              }));
+            }
+          });
           break;
           
         case 'player_join':
@@ -132,7 +181,7 @@ module.exports = function(ws, wss) {
           break;
       }
     } catch (error) {
-      console.error('WebSocket message error:', error);
+      console.error('💬 Chat error:', error);
     }
   });
 

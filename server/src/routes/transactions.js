@@ -5,6 +5,9 @@ const auth = require('../middleware/auth');
 const User = require('../models/User');
 const mongoose = require('mongoose');
 
+console.log('[transactions.js] Loaded and routes registered');
+console.log('[transactions.js] Route file loaded'); // Add this at the top
+
 const handleWebSocketMessage = (ws, data) => {
     if (data.type === 'user_connected') {
         if (!data.user?.id) {
@@ -32,37 +35,77 @@ const broadcastBalance = (userId, newBalance, wss) => {
     });
 };
 
+const verifyAndLogUser = async (userId) => {
+    console.log('🔍 Verifying transaction for user:', userId);
+    const user = await User.findById(userId);
+    if (!user) {
+        throw new Error('User not found');
+    }
+    console.log('✅ Verified user:', {
+        userId: user._id,
+        username: user.username,
+        phone: user.phone
+    });
+    return user;
+};
+
+const calculateBalance = async (userId) => {
+    const result = await Transaction.aggregate([
+        {
+            $match: {
+                userId: new mongoose.Types.ObjectId(userId),
+                $or: [
+                    { status: 'completed' },
+                    { $and: [{ type: 'deposit' }, { status: 'pending' }] }
+                ]
+            }
+        },
+        {
+            $group: {
+                _id: null,
+                total: {
+                    $sum: {
+                        $cond: {
+                            if: { $eq: ['$type', 'bet'] },
+                            then: { $multiply: ['$amount', -1] },
+                            else: '$amount'
+                        }
+                    }
+                }
+            }
+        }
+    ]);
+    return result.length > 0 ? result[0].total : 0;
+};
+
 router.post('/deposit', auth, async (req, res) => {
     try {
-        const { amount, phoneNumber } = req.body;
+        const { amount } = req.body;
+        console.log('💰 Creating deposit:', { userId: req.user._id, amount });
         
-        // Validate amount
-        if (amount < 10 || amount > 100000) {
-            return res.status(400).json({ 
-                error: 'Amount must be between 10 and 100,000 KES' 
-            });
-        }
-
-        // Get current balance
-        const user = await User.findById(req.user._id);
-        
-        // Create transaction without balanceAfter for pending deposits
         const transaction = new Transaction({
             userId: req.user._id,
             type: 'deposit',
             amount,
-            phoneNumber: phoneNumber || req.user.phone,
-            status: 'pending',
-            // balanceAfter will be set when deposit completes
+            status: 'pending'
         });
 
         await transaction.save();
-
-        res.status(201).json({
-            message: 'Deposit request created',
-            transaction
+        console.log('✅ Deposit created:', {
+            transactionId: transaction._id,
+            userId: transaction.userId,
+            amount: transaction.amount
         });
 
+        // Fetch updated balance
+        const updatedBalance = await calculateBalance(req.user._id);
+        console.log('Updated balance:', updatedBalance);
+
+        res.status(201).json({
+            success: true,
+            transaction,
+            balance: updatedBalance
+        });
     } catch (error) {
         console.error('Deposit error:', error);
         res.status(500).json({ error: error.message });
@@ -71,19 +114,22 @@ router.post('/deposit', auth, async (req, res) => {
 
 router.get('/balance', auth, async (req, res) => {
     try {
-        console.log('Fetching balance for user:', {
-            id: req.user._id,
-            phone: req.user.phone
-        });
+        const currentUserId = req.user._id;
+        console.log('🔍 Calculating balance for user:', currentUserId);
 
-        const transactions = await Transaction.aggregate([
-            { 
-                $match: { 
-                    $or: [
-                        { userId: req.user._id },
-                        { phoneNumber: req.user.phone }
-                    ],
-                    // Include both completed and pending deposits
+        // First log all user's transactions
+        const allTransactions = await Transaction.find({ userId: currentUserId });
+        console.log('Found transactions:', allTransactions.map(t => ({
+            id: t._id,
+            type: t.type,
+            amount: t.amount,
+            status: t.status
+        })));
+
+        const balanceAggregation = await Transaction.aggregate([
+            {
+                $match: {
+                    userId: new mongoose.Types.ObjectId(currentUserId),
                     $or: [
                         { status: 'completed' },
                         { $and: [{ type: 'deposit' }, { status: 'pending' }] }
@@ -93,95 +139,35 @@ router.get('/balance', auth, async (req, res) => {
             {
                 $group: {
                     _id: null,
-                    balance: {
+                    total: {
                         $sum: {
-                            $switch: {
-                                branches: [
-                                    { 
-                                        case: { 
-                                            $and: [
-                                                { $eq: ['$type', 'deposit'] },
-                                                { $in: ['$status', ['completed', 'pending']] }
-                                            ]
-                                        }, 
-                                        then: '$amount' 
-                                    },
-                                    { 
-                                        case: { 
-                                            $and: [
-                                                { $eq: ['$type', 'win'] },
-                                                { $eq: ['$status', 'completed'] }
-                                            ]
-                                        }, 
-                                        then: '$amount' 
-                                    },
-                                    { 
-                                        case: { 
-                                            $and: [
-                                                { $eq: ['$type', 'bet'] },
-                                                { $eq: ['$status', 'completed'] }
-                                            ]
-                                        }, 
-                                        then: { $multiply: ['$amount', -1] }
-                                    }
-                                ],
-                                default: 0
+                            $cond: {
+                                if: { $eq: ['$type', 'bet'] },
+                                then: { $multiply: ['$amount', -1] },
+                                else: '$amount'
                             }
-                        }
-                    },
-                    pendingDeposits: {
-                        $sum: {
-                            $cond: [
-                                { $and: [
-                                    { $eq: ['$type', 'deposit'] },
-                                    { $eq: ['$status', 'pending'] }
-                                ]},
-                                '$amount',
-                                0
-                            ]
-                        }
-                    },
-                    completedDeposits: {
-                        $sum: {
-                            $cond: [
-                                { $and: [
-                                    { $eq: ['$type', 'deposit'] },
-                                    { $eq: ['$status', 'completed'] }
-                                ]},
-                                '$amount',
-                                0
-                            ]
                         }
                     }
                 }
             }
         ]);
 
-        const balanceInfo = transactions[0] || { 
-            balance: 0, 
-            pendingDeposits: 0,
-            completedDeposits: 0 
-        };
-
-        console.log('Detailed balance for', req.user.username, {
-            ...balanceInfo,
-            phone: req.user.phone
+        const balance = balanceAggregation.length > 0 ? balanceAggregation[0].total : 0;
+        console.log('💰 Balance calculation result:', {
+            userId: currentUserId,
+            balance,
+            transactionCount: allTransactions.length
         });
 
-        // Update user's balance
-        await User.findByIdAndUpdate(req.user._id, { 
-            balance: balanceInfo.balance 
-        });
+        // Update user's balance in database
+        await User.findByIdAndUpdate(currentUserId, { balance });
 
-        res.json({
-            balance: balanceInfo.balance,
-            pending: balanceInfo.pendingDeposits,
-            details: {
-                deposits: balanceInfo.completedDeposits
-            }
+        res.json({ 
+            balance,
+            transactionCount: allTransactions.length
         });
     } catch (error) {
-        console.error('Balance fetch error:', error);
+        console.error('Balance calculation error:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -199,44 +185,73 @@ router.get('/history', auth, async (req, res) => {
 });
 
 router.post('/bet', auth, async (req, res) => {
+    console.log('[transactions.js] /bet route hit'); // Add this at the start of the route
+
     const session = await mongoose.startSession();
     session.startTransaction();
 
     try {
         const { amount } = req.body;
-        
-        // Get current user balance
+        console.log('[Backend] Received bet request:', {
+            userId: req.user._id,
+            amount
+        });
+
+        // Find user and validate balance atomically
         const user = await User.findById(req.user._id).session(session);
+        console.log('[Backend] User before deduction:', {
+            userId: user?._id,
+            balance: user?.balance
+        });
+
         if (!user || user.balance < amount) {
             throw new Error('Insufficient balance');
         }
 
-        // Deduct bet amount immediately
-        const newBalance = user.balance - amount;
-        user.balance = newBalance;
-        await user.save({ session });
+        // Update balance atomically
+        const updatedUser = await User.findOneAndUpdate(
+            { _id: user._id, balance: { $gte: amount } },
+            { $inc: { balance: -amount } },
+            { new: true, session }
+        );
 
-        // Create transaction with status 'completed'
+        console.log('[Backend] User after deduction:', {
+            userId: updatedUser?._id,
+            balance: updatedUser?.balance
+        });
+
+        if (!updatedUser) {
+            throw new Error('Balance update failed');
+        }
+
+        // Create transaction
         const transaction = new Transaction({
             userId: user._id,
             type: 'bet',
             amount,
-            status: 'completed', // Always completed for balance calculation
-            balanceAfter: newBalance,
-            phoneNumber: user.phone
+            status: 'completed',
+            balanceAfter: updatedUser.balance
         });
+
         await transaction.save({ session });
-
         await session.commitTransaction();
-        broadcastBalance(user._id, newBalance, req.app.get('wss'));
 
-        res.json({ 
-            success: true, 
-            newBalance,
-            betId: transaction._id 
+        console.log('[Backend] Bet transaction saved:', {
+            transactionId: transaction._id,
+            userId: user._id,
+            amount,
+            balanceAfter: updatedUser.balance
         });
+
+        res.json({
+            success: true,
+            betId: transaction._id,
+            newBalance: updatedUser.balance
+        });
+
     } catch (error) {
         await session.abortTransaction();
+        console.error('[Backend] Bet error:', error);
         res.status(400).json({ error: error.message });
     } finally {
         session.endSession();
@@ -249,11 +264,19 @@ router.post('/win', auth, async (req, res) => {
 
     try {
         const { betId, winAmount, multiplier } = req.body;
-        
+        console.log('[Backend] /win called:', { betId, winAmount, multiplier });
+
+        if (!betId || typeof winAmount !== 'number' || typeof multiplier !== 'number') {
+            throw new Error('Missing or invalid parameters');
+        }
+
+        const user = await verifyAndLogUser(req.user._id);
+        console.log('🏆 Processing win for user:', user._id);
+
         // Find the bet transaction (already completed for balance)
         const bet = await Transaction.findOne({
             _id: betId,
-            userId: req.user._id,
+            userId: user._id,
             type: 'bet'
         }).session(session);
 
@@ -262,7 +285,6 @@ router.post('/win', auth, async (req, res) => {
         }
 
         // Update user's balance with winnings
-        const user = await User.findById(req.user._id).session(session);
         user.balance += winAmount;
         await user.save({ session });
 
@@ -276,9 +298,67 @@ router.post('/win', auth, async (req, res) => {
             relatedBetId: betId,
             phoneNumber: user.phone
         });
+
+        console.log('📝 Creating win transaction:', {
+            userId: user._id,
+            betId,
+            winAmount
+        });
+
         await winTransaction.save({ session });
         
         await session.commitTransaction();
+        broadcastBalance(user._id, user.balance, req.app.get('wss'));
+
+        // After successful win, broadcast updated leaderboard
+        const wss = req.app.get('wss');
+        if (wss) {
+            wss.clients.forEach(client => {
+                if (client.readyState === 1) {
+                    client.send(JSON.stringify({
+                        type: 'leaderboard_update'
+                    }));
+                }
+            });
+        }
+
+        res.json({ 
+            success: true,
+            newBalance: user.balance
+        });
+    } catch (error) {
+        await session.abortTransaction();
+        console.error('[Backend] Win error:', error);
+        res.status(400).json({ error: error.message });
+    } finally {
+        session.endSession();
+    }
+});
+
+router.post('/bet/lost', auth, async (req, res) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+        const user = await verifyAndLogUser(req.user._id);
+        console.log('❌ Processing bet loss for user:', user._id);
+
+        const { betId } = req.body;
+
+        // Find the bet transaction
+        const bet = await Transaction.findOne({
+            _id: betId,
+            userId: user._id,
+            type: 'bet'
+        }).session(session);
+
+        if (!bet) {
+            throw new Error('No bet found');
+        }
+
+        await session.commitTransaction();
+
+        // Get final balance
         broadcastBalance(user._id, user.balance, req.app.get('wss'));
 
         res.json({ 
@@ -293,43 +373,62 @@ router.post('/win', auth, async (req, res) => {
     }
 });
 
-router.post('/bet/lost', auth, async (req, res) => {
-    const session = await mongoose.startSession();
-    session.startTransaction();
-
+router.get('/leaderboard', async (req, res) => {
     try {
-        const { betId } = req.body;
+        console.log('📊 Fetching leaderboard data');
+        
+        const leaderboard = await Transaction.aggregate([
+            {
+                $match: {
+                    type: 'win',
+                    status: 'completed'
+                }
+            },
+            {
+                $group: {
+                    _id: '$userId',
+                    totalWinnings: { $sum: '$amount' },
+                    winCount: { $sum: 1 },
+                    highestWin: { $max: '$amount' }
+                }
+            },
+            {
+                $sort: { totalWinnings: -1 }
+            },
+            {
+                $limit: 10
+            },
+            {
+                $lookup: {
+                    from: 'users',
+                    localField: '_id',
+                    foreignField: '_id',
+                    as: 'user'
+                }
+            },
+            {
+                $project: {
+                    _id: 1,
+                    username: { $arrayElemAt: ['$user.username', 0] },
+                    totalWinnings: 1,
+                    winCount: 1,
+                    highestWin: 1
+                }
+            }
+        ]);
 
-        // Find the bet transaction
-        const bet = await Transaction.findOne({
-            _id: betId,
-            userId: req.user._id,
-            type: 'bet'
-        }).session(session);
+        console.log('🏆 Leaderboard calculated:', 
+            leaderboard.map(player => ({
+                username: player.username,
+                wins: player.winCount,
+                total: player.totalWinnings
+            }))
+        );
 
-        if (!bet) {
-            throw new Error('No bet found');
-        }
-
-        // Do NOT change status, just annotate loss if you want
-        // bet.isLost = true;
-        // await bet.save({ session });
-
-        await session.commitTransaction();
-
-        // Get final balance
-        const user = await User.findById(req.user._id);
-        broadcastBalance(user._id, user.balance, req.app.get('wss'));
-
-        res.json({ 
-            success: true,
-            newBalance: user.balance
-        });
+        res.json(leaderboard);
     } catch (error) {
-        await session.abortTransaction();
-        res.status(400).json({ error: error.message });
-    } finally {
-        session.endSession();
+        console.error('Leaderboard error:', error);
+        res.status(500).json({ error: error.message });
     }
 });
 

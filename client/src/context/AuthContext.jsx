@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useContext, useCallback, useRef } from 'react';
+import React, { createContext, useState, useEffect, useContext, useCallback } from 'react';
 import { toast } from 'react-hot-toast';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
@@ -8,9 +8,7 @@ export const AuthContext = createContext(null);
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
-  const balanceLock = useRef(false);
   const [balanceFetchLock, setBalanceFetchLock] = useState(false);
-  const [lastManualUpdate, setLastManualUpdate] = useState(0);
 
   const verifyToken = async (token) => {
     try {
@@ -35,7 +33,6 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (credentials) => {
     try {
-      // Always clear previous session/token before login
       localStorage.removeItem('token');
       sessionStorage.removeItem('user');
 
@@ -47,7 +44,6 @@ export const AuthProvider = ({ children }) => {
 
       const data = await response.json();
       if (response.ok) {
-        // Always store the new user/token after login
         localStorage.setItem('token', data.token);
         sessionStorage.setItem('user', JSON.stringify(data.user));
         setUser(data.user);
@@ -65,7 +61,6 @@ export const AuthProvider = ({ children }) => {
 
   const register = async (credentials) => {
     try {
-      // Always clear previous session/token before register
       localStorage.removeItem('token');
       sessionStorage.removeItem('user');
 
@@ -77,10 +72,6 @@ export const AuthProvider = ({ children }) => {
 
       const data = await response.json();
       if (response.ok) {
-        // Optionally, auto-login after register:
-        // localStorage.setItem('token', data.token);
-        // sessionStorage.setItem('user', JSON.stringify(data.user));
-        // setUser(data.user);
         toast.success('Registration successful! Please login.');
         return true;
       }
@@ -104,7 +95,6 @@ export const AuthProvider = ({ children }) => {
     } catch (err) {
       console.error('Logout error:', err.message);
     } finally {
-      // Always clear storage on logout
       localStorage.removeItem('token');
       sessionStorage.removeItem('user');
       setUser(null);
@@ -113,21 +103,24 @@ export const AuthProvider = ({ children }) => {
   };
 
   const updateBalance = useCallback((newBalance) => {
-    setLastManualUpdate(Date.now());
-    console.log('🔄 Balance Update:', { 
-      previous: user?.balance,
-      new: newBalance,
-      change: newBalance - (user?.balance || 0)
-    });
+    if (typeof newBalance !== 'number' || isNaN(newBalance)) {
+        console.error('[AuthContext] Invalid balance update:', newBalance);
+        return;
+    }
     setUser(prev => {
-      const updated = { ...prev, balance: newBalance };
-      sessionStorage.setItem('user', JSON.stringify(updated));
-      return updated;
+        if (prev?.balance === newBalance) return prev;
+        console.log('[AuthContext] 💰 Balance update:', {
+            from: prev?.balance,
+            to: newBalance,
+            change: newBalance - (prev?.balance || 0)
+        });
+        const updated = { ...prev, balance: newBalance };
+        sessionStorage.setItem('user', JSON.stringify(updated));
+        return updated;
     });
-  }, [user?.balance]);
+  }, []);
 
   const fetchBalance = useCallback(async () => {
-    if (Date.now() - lastManualUpdate < 1500) return;
     if (balanceFetchLock) return;
     setBalanceFetchLock(true);
 
@@ -141,10 +134,7 @@ export const AuthProvider = ({ children }) => {
       
       const data = await response.json();
       if (response.ok && data.balance !== user?.balance) {
-        setUser(prev => ({
-          ...prev,
-          balance: Number(data.balance)
-        }));
+        updateBalance(Number(data.balance));
         console.log('✅ Balance fetched and updated:', data.balance);
       }
     } catch (error) {
@@ -152,7 +142,7 @@ export const AuthProvider = ({ children }) => {
     } finally {
       setBalanceFetchLock(false);
     }
-  }, [user?.balance, lastManualUpdate, balanceFetchLock]);
+  }, [user?.balance, balanceFetchLock, updateBalance]);
 
   const deductBalance = (amount) => {
     if (!user || user.balance < amount) return false;
@@ -196,12 +186,6 @@ export const AuthProvider = ({ children }) => {
       return () => clearInterval(intervalId);
     }
   }, [user?._id, fetchBalance]);
-
-  useEffect(() => {
-    return () => {
-      balanceLock.current = false;
-    };
-  }, []);
 
   return (
     <AuthContext.Provider value={{ 

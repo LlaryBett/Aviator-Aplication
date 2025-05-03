@@ -1,133 +1,215 @@
-import React, { useState, useRef, useEffect, memo } from 'react';
-import { Send, MessageSquare, Smile, Gift, X } from 'lucide-react';
-import { chatService } from '../services/chatService';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Send } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-const ChatBox = memo(() => {
-  const [messages, setMessages] = useState([]);
-  const [newMessage, setNewMessage] = useState('');
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const messagesEndRef = useRef(null);
-  const { user } = useAuth();
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+const MAX_MESSAGES = 100; // Keep last 100 messages
+const AUTO_SCROLL_THRESHOLD = 100; // pixels from bottom
 
-  useEffect(() => {
-    chatService.connect();
+const ChatBox = () => {
+    const [messages, setMessages] = useState([]);
+    const [newMessage, setNewMessage] = useState('');
+    const [autoScroll, setAutoScroll] = useState(true);
+    const messagesEndRef = useRef(null);
+    const chatContainerRef = useRef(null);
+    const wsRef = useRef(null); // Store WebSocket reference
+    const { user } = useAuth();
 
-    const messageListener = (message) => {
-      // Ensure the message has valid text and username
-      if (message.text && message.username && message.username.trim() !== '') {
-        setMessages(prevMessages => [...prevMessages, message]);
-      }
+    const scrollToBottom = () => {
+        if (autoScroll) {
+            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }
     };
 
-    chatService.subscribe(messageListener);
+    const handleScroll = () => {
+        if (!chatContainerRef.current) return;
 
-    return () => {
-      chatService.unsubscribe(messageListener);
-    };
-  }, []);
+        const { scrollHeight, scrollTop, clientHeight } = chatContainerRef.current;
+        const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
 
-  // Auto-scroll behavior
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  const handleSendMessage = (e) => {
-    e.preventDefault();
-    if (!newMessage.trim()) return;
-
-    // Check if user is authenticated
-    if (!user) {
-      alert('You must be logged in to send messages.');
-      return;
-    }
-
-    const messageData = {
-      text: newMessage.trim(),
-      username: user.username,
-      avatar: `https://i.pravatar.cc/150?u=${user.username}`,
-      timestamp: Date.now(),
+        setAutoScroll(distanceFromBottom < AUTO_SCROLL_THRESHOLD);
     };
 
-    // Local echo for instant feedback
-    setMessages(prev => [...prev, messageData]);
-    chatService.sendMessage(messageData);
-    setNewMessage('');
-  };
+    const addMessage = useCallback((newMessage) => {
+        setMessages(prev => {
+            // Use a Map to deduplicate by id/_id
+            const map = new Map();
+            [...prev, newMessage].forEach(msg => {
+                const key = msg._id || msg.id;
+                if (key) map.set(key, msg);
+            });
+            // Sort and slice
+            return Array.from(map.values())
+                .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+                .slice(-MAX_MESSAGES);
+        });
+    }, []);
 
-  const formatTime = (timestamp) => {
-    if (!timestamp) return '';
-    const date = new Date(Number(timestamp));
-    return date.getTime() ? 
-      date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 
-      new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
+    const fetchMessages = async () => {
+        try {
+            const response = await fetch(`${BACKEND_URL}/api/chat/messages`);
+            if (!response.ok) {
+                throw new Error('Failed to fetch messages');
+            }
+            const data = await response.json();
+            // Deduplicate on fetch as well
+            const map = new Map();
+            data.forEach(msg => {
+                const key = msg._id || msg.id;
+                if (key) map.set(key, msg);
+            });
+            setMessages(Array.from(map.values())
+                .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+                .slice(-MAX_MESSAGES));
+            scrollToBottom();
+        } catch (error) {
+            console.error('Failed to fetch messages:', error);
+            setMessages([]);
+        }
+    };
 
-  return (
-    <div className="bg-gray-800/90 backdrop-blur-md border border-gray-700 rounded-lg flex flex-col h-full">
-      <div className="p-3 border-b border-gray-700 flex justify-between items-center">
-        <h3 className="text-lg font-semibold text-white flex items-center">
-          <MessageSquare size={18} className="mr-2 text-gray-400" />
-          Live Chat
-        </h3>
-        <button className="text-gray-400 hover:text-teal-400 transition-colors">
-          <Gift size={18} />
-        </button>
-      </div>
+    useEffect(() => {
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 5;
 
-      {/* Messages Container */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
-        {messages.map((msg, index) => (
-          <div key={index} className="flex items-start">
-            <img 
-              src={msg.avatar || '/default-avatar.png'} 
-              alt={msg.username || 'Anonymous'} 
-              className="w-8 h-8 rounded-full mr-2 mt-1" 
+        const connectWebSocket = () => {
+            const wsUrl = BACKEND_URL.replace(/^http/, 'ws'); // This gives ws://localhost:5000
+            wsRef.current = new WebSocket(wsUrl); // Store WebSocket in ref
+
+            wsRef.current.onopen = () => {
+                console.log('✅ Chat WebSocket connected');
+                reconnectAttempts = 0;
+            };
+
+            wsRef.current.onclose = () => {
+                console.log('❌ Chat WebSocket closed');
+                if (reconnectAttempts < maxReconnectAttempts) {
+                    reconnectAttempts++;
+                    setTimeout(connectWebSocket, 1000 * reconnectAttempts);
+                }
+            };
+
+            wsRef.current.onerror = (error) => {
+                console.error('Chat WebSocket error:', error);
+            };
+
+            wsRef.current.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === 'chat_message') {
+                    addMessage(data.message);
+                    scrollToBottom();
+                }
+            };
+        };
+
+        fetchMessages();
+        connectWebSocket();
+
+        return () => {
+            if (wsRef.current) {
+                wsRef.current.close();
+            }
+        };
+    }, [addMessage]);
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        if (!newMessage.trim() || !user) return;
+
+        // Use existing WebSocket connection
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({
+                type: 'chat_message',
+                userId: user._id,
+                username: user.username,
+                message: newMessage.trim()
+            }));
+            setNewMessage('');
+        } else {
+            console.error('WebSocket not connected');
+        }
+    };
+
+    // Deduplicate messages before rendering
+    const dedupedMessages = React.useMemo(() => {
+        const map = new Map();
+        messages.forEach(msg => {
+            const key = msg._id || msg.id;
+            if (key) map.set(key, msg);
+        });
+        return Array.from(map.values())
+            .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    }, [messages]);
+
+    const renderMessage = (msg) => (
+        <div
+            key={msg._id || msg.id}
+            className="flex items-start gap-3 p-2 hover:bg-gray-700/30 rounded"
+        >
+            <img
+                src={`https://i.pravatar.cc/150?u=${msg.username}`}
+                alt=""
+                className="w-8 h-8 rounded-full bg-gray-600"
             />
             <div>
-              <div className="flex items-center">
-                <span className="font-medium text-teal-400">{msg.username || 'Anonymous'}</span>
-                <span className="text-xs text-gray-500 ml-2">{formatTime(msg.timestamp)}</span>
-              </div>
-              <p className="text-white text-sm">{msg.text}</p>
+                <div className="flex items-baseline gap-2">
+                    <span className="font-medium text-white">{msg.username}</span>
+                    <span className="text-xs text-gray-400">
+                        {new Date(msg.timestamp).toLocaleTimeString()}
+                    </span>
+                </div>
+                <p className="text-gray-300 text-sm">{msg.message}</p>
             </div>
-          </div>
-        ))}
-        <div ref={messagesEndRef} />
-      </div>
+        </div>
+    );
 
-      {/* Message Input */}
-      <div className="p-3 border-t border-gray-700 relative">
-        <form onSubmit={handleSendMessage} className="flex space-x-2">
-          <button
-            type="button"
-            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-            className="text-gray-400 hover:text-teal-400 transition-colors"
-          >
-            <Smile size={20} />
-          </button>
-          <input
-            type="text"
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            placeholder="Type a message..."
-            className="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-teal-500"
-          />
-          <button
-            type="submit"
-            disabled={!newMessage.trim()}
-            className={`px-3 py-2 rounded ${
-              newMessage.trim()
-                ? 'bg-teal-600 hover:bg-teal-700 text-white' 
-                : 'bg-gray-700 text-gray-400 cursor-not-allowed'
-            } transition-colors`}
-          >
-            <Send size={18} />
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-});
+    return (
+        <div className="bg-gray-800 rounded-lg flex flex-col h-full">
+            <div className="p-4 border-b border-gray-700">
+                <h2 className="font-semibold">Live Chat</h2>
+            </div>
+
+            <div
+                ref={chatContainerRef}
+                onScroll={handleScroll}
+                className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth"
+            >
+                {dedupedMessages.map(renderMessage)}
+                <div ref={messagesEndRef} />
+                {!autoScroll && messages.length > 0 && (
+                    <button
+                        onClick={() => {
+                            setAutoScroll(true);
+                            scrollToBottom();
+                        }}
+                        className="fixed bottom-20 right-8 bg-teal-600 text-white px-4 py-2 rounded-full shadow-lg hover:bg-teal-700"
+                    >
+                        ↓ New messages
+                    </button>
+                )}
+            </div>
+
+            <form onSubmit={handleSubmit} className="p-4 border-t border-gray-700">
+                <div className="flex gap-2">
+                    <input
+                        type="text"
+                        value={newMessage}
+                        onChange={(e) => setNewMessage(e.target.value)}
+                        placeholder={user ? "Type a message..." : "Login to chat"}
+                        disabled={!user}
+                        className="flex-1 bg-gray-700 text-white px-3 py-2 rounded focus:outline-none focus:ring-1 focus:ring-teal-500"
+                    />
+                    <button
+                        type="submit"
+                        disabled={!user || !newMessage.trim()}
+                        className="bg-teal-600 text-white p-2 rounded hover:bg-teal-700 disabled:opacity-50"
+                    >
+                        <Send size={20} />
+                    </button>
+                </div>
+            </form>
+        </div>
+    );
+};
 
 export default ChatBox;
