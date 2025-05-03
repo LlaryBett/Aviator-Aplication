@@ -145,6 +145,7 @@ export const AuthProvider = ({ children }) => {
           ...prev,
           balance: Number(data.balance)
         }));
+        console.log('✅ Balance fetched and updated:', data.balance);
       }
     } catch (error) {
       console.error('Balance fetch error:', error);
