@@ -12,7 +12,7 @@ const calculateBalance = async (userId) => {
   const transactions = await Transaction.aggregate([
     { 
       $match: { 
-        userId: mongoose.Types.ObjectId(userId),
+        userId: new mongoose.Types.ObjectId(userId),
         status: 'completed'
       }
     },
