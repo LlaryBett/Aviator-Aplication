@@ -313,7 +313,7 @@ const App = memo(function App() {
       <Toaster
         position="top-right"
         toastOptions={{
-          duration: 4000,
+          duration: 2000, // Shorten the duration to 2 seconds
           style: {
             background: '#1f2937',
             color: '#fff',
