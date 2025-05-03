@@ -1,7 +1,5 @@
 import React, { useState, useRef, useEffect, memo } from 'react';
 import { Send, MessageSquare, Smile, Gift, X } from 'lucide-react';
-import data from '@emoji-mart/data';
-import Picker from '@emoji-mart/react';
 import { chatService } from '../services/chatService';
 import { useAuth } from '../context/AuthContext';
 
@@ -57,11 +55,6 @@ const ChatBox = memo(() => {
     setNewMessage('');
   };
 
-  const handleEmojiSelect = (emoji) => {
-    setNewMessage(prev => prev + emoji.native);
-    setShowEmojiPicker(false);
-  };
-
   const formatTime = (timestamp) => {
     if (!timestamp) return '';
     const date = new Date(Number(timestamp));
@@ -105,25 +98,6 @@ const ChatBox = memo(() => {
 
       {/* Message Input */}
       <div className="p-3 border-t border-gray-700 relative">
-        {showEmojiPicker && (
-          <div className="absolute bottom-full mb-2 left-0">
-            <div className="relative">
-              <button
-                onClick={() => setShowEmojiPicker(false)}
-                className="absolute right-2 top-2 text-gray-400 hover:text-gray-300 z-10"
-              >
-                <X size={16} />
-              </button>
-              <Picker 
-                data={data} 
-                onEmojiSelect={handleEmojiSelect}
-                theme="dark"
-                previewPosition="none"
-                skinTonePosition="none"
-              />
-            </div>
-          </div>
-        )}
         <form onSubmit={handleSendMessage} className="flex space-x-2">
           <button
             type="button"
