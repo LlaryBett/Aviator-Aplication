@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');  // Change to bcryptjs
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   balance: { type: Number, required: true, default: 0 },
+  lastTransactionAt: { type: Date, default: Date.now },
   createdAt: { type: Date, default: Date.now },
   lastLogin: Date,
   stats: {
@@ -52,6 +53,14 @@ userSchema.statics.findByCredentials = async (identifier, password) => {
 // Method to compare passwords
 userSchema.methods.comparePassword = async function(candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
+};
+
+// Add method to update balance
+userSchema.methods.updateBalance = async function(amount, type) {
+  this.balance = type === 'debit' ? this.balance - amount : this.balance + amount;
+  this.lastTransactionAt = new Date();
+  await this.save();
+  return this.balance;
 };
 
 module.exports = mongoose.model('User', userSchema);

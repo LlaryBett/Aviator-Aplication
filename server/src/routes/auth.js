@@ -1,31 +1,39 @@
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
 const auth = require('../middleware/auth');
 
 // Helper function to calculate balance
 const calculateBalance = async (userId) => {
+  console.log('Calculating balance for user:', userId);
   const transactions = await Transaction.aggregate([
-    { $match: { 
-      userId: userId,
-      status: 'completed'
-    }},
-    { $group: {
-      _id: null,
-      total: {
-        $sum: {
-          $cond: [
-            { $in: ['$type', ['deposit', 'win']] },
-            '$amount',
-            { $multiply: ['$amount', -1] }  // for bets and withdrawals
-          ]
+    { 
+      $match: { 
+        userId: mongoose.Types.ObjectId(userId),
+        status: 'completed'
+      }
+    },
+    { 
+      $group: {
+        _id: null,
+        total: {
+          $sum: {
+            $cond: [
+              { $in: ['$type', ['deposit', 'win']] },
+              '$amount',
+              { $multiply: ['$amount', -1] }  // for bets and withdrawals
+            ]
+          }
         }
       }
-    }}
+    }
   ]);
-  return transactions.length > 0 ? transactions[0].total : 0;
+  const balance = transactions.length > 0 ? transactions[0].total : 0;
+  console.log('Calculated balance:', balance, 'for user:', userId);
+  return balance;
 };
 
 // Register
@@ -47,8 +55,12 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    const user = new User(req.body);
+    const user = new User({
+      ...req.body,
+      balance: 0  // Explicitly set initial balance
+    });
     await user.save();
+    console.log('New user registered with ID:', user._id, 'Initial balance:', user.balance);
 
     // Return the new user object (without password) and optionally a token if you want auto-login
     res.status(201).json({ 
@@ -82,8 +94,15 @@ router.post('/login', async (req, res) => {
       throw new Error('Invalid credentials');
     }
 
-    // Calculate current balance
+    // Calculate balance specifically for this user
     const balance = await calculateBalance(user._id);
+    console.log('Login: User balance calculated:', {
+      userId: user._id,
+      balance: balance
+    });
+    
+    user.balance = balance;
+    await user.save();
 
     console.log('Login Debug - Secret:', process.env.JWT_SECRET ? 'Secret exists' : 'NO SECRET!');
     const token = jwt.sign(
