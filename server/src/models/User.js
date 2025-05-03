@@ -3,25 +3,26 @@ const bcrypt = require('bcryptjs');  // Change to bcryptjs
 
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
-  balance: { type: Number, required: true, default: 0 },
-  lastTransactionAt: { type: Date, default: Date.now },
-  createdAt: { type: Date, default: Date.now },
-  lastLogin: Date,
-  stats: {
-    totalWinnings: { type: Number, default: 0 },
-    biggestWin: { type: Number, default: 0 },
-    gamesPlayed: { type: Number, default: 0 },
-    lastGamePlayed: Date
-  },
-  avatar: { type: String, default: function() {
-    return `https://i.pravatar.cc/150?u=${this._id}`;
-  }},
-  email: { type: String, sparse: true },
+  email: { type: String, sparse: true, unique: true },
   phone: { type: String, required: true, unique: true },
   password: { type: String, required: true },
-  tokens: [{
-    token: { type: String, required: true }
-  }]
+  balance: { 
+    type: Number,
+    default: 0,
+    required: true
+  },
+  avatar: {
+    type: String,
+    default: 'https://api.dicebear.com/7.x/avataaars/svg'
+  }
+}, { timestamps: true });
+
+// Ensure phone OR email is provided
+userSchema.pre('save', function(next) {
+  if (!this.phone && !this.email) {
+    next(new Error('Either phone or email is required'));
+  }
+  next();
 });
 
 // Pre-save middleware to hash password
