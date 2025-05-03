@@ -8,23 +8,48 @@ const auth = require('../middleware/auth');
 
 // Register a new user
 router.post('/register', async (req, res) => {
+  console.log('Registration attempt:', req.body);
   try {
+    // Check if user exists
+    const existingUser = await User.findOne({
+      $or: [
+        { email: req.body.email },
+        { phone: req.body.phone },
+        { username: req.body.username }
+      ]
+    });
+
+    if (existingUser) {
+      console.log('Registration failed: User already exists');
+      return res.status(400).json({ 
+        error: 'User already exists with this email, phone, or username' 
+      });
+    }
+
     const user = new User(req.body);
+    console.log('New user object created:', user);
+
     await user.save();
-    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '24h' });
+    console.log('New user registered with ID:', user._id, 'Initial balance:', user.balance);
+
+    // Return the new user object (without password) and optionally a token if you want auto-login
     res.status(201).json({ 
       user: {
         _id: user._id,
         username: user.username,
         email: user.email,
-        phone: user.phone,
-        balance: user.balance,
+        phone: req.body.phone,
+        balance: 0,
         avatar: user.avatar
       },
-      token,
-      message: 'User registered successfully'
+      // Optionally, generate a token here if you want to auto-login after register:
+      // const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET)
+      success: true,
+      message: 'Registration successful! Please login.'
     });
   } catch (error) {
+    console.error('Registration error:', error);
+    console.error('Registration error details:', error.message, error.stack);
     res.status(400).json({ error: error.message });
   }
 });
@@ -37,6 +62,9 @@ router.post('/login', async (req, res) => {
     if (!user || !(await user.comparePassword(password))) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
+
+    // Add this line to check if JWT_SECRET is defined
+    console.log("JWT_SECRET from env:", process.env.JWT_SECRET);
 
     const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '24h' });
     res.json({ 

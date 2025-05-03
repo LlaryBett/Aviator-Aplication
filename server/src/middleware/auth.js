@@ -9,6 +9,10 @@ const auth = async (req, res, next) => {
     }
 
     const token = authHeader.replace('Bearer ', '');
+
+    // Add this line to check if JWT_SECRET is defined
+    console.log("JWT_SECRET from env:", process.env.JWT_SECRET);
+
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     const user = await User.findById(decoded.userId).select('-password'); // Exclude password
