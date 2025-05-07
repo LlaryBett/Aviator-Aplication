@@ -4,6 +4,8 @@ const Transaction = require('../models/Transaction');
 const auth = require('../middleware/auth');
 const User = require('../models/User');
 const mongoose = require('mongoose');
+const { initiateDeposit, handleCallback, getTransactionStatus } = require('../controllers/mpesaController');
+console.log('M-Pesa controller loaded:', { initiateDeposit, handleCallback });
 
 console.log('[transactions.js] Loaded and routes registered');
 console.log('[transactions.js] Route file loaded'); // Add this at the top
@@ -115,16 +117,11 @@ router.post('/deposit', auth, async (req, res) => {
 router.get('/balance', auth, async (req, res) => {
     try {
         const currentUserId = req.user._id;
-        console.log('🔍 Calculating balance for user:', currentUserId);
+        // console.log('🔍 Calculating balance for user:', currentUserId);
 
         // First log all user's transactions
         const allTransactions = await Transaction.find({ userId: currentUserId });
-        console.log('Found transactions:', allTransactions.map(t => ({
-            id: t._id,
-            type: t.type,
-            amount: t.amount,
-            status: t.status
-        })));
+       
 
         const balanceAggregation = await Transaction.aggregate([
             {
@@ -153,11 +150,11 @@ router.get('/balance', auth, async (req, res) => {
         ]);
 
         const balance = balanceAggregation.length > 0 ? balanceAggregation[0].total : 0;
-        console.log('💰 Balance calculation result:', {
-            userId: currentUserId,
-            balance,
-            transactionCount: allTransactions.length
-        });
+        // console.log('💰 Balance calculation result:', {
+        //     userId: currentUserId,
+        //     balance,
+        //     transactionCount: allTransactions.length
+        // });
 
         // Update user's balance in database
         await User.findByIdAndUpdate(currentUserId, { balance });
@@ -431,5 +428,10 @@ router.get('/leaderboard', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+// M-Pesa routes
+router.post('/mpesa/stk', auth, initiateDeposit);
+router.post('/mpesa/callback', handleCallback);
+router.get('/status/:requestId', auth, getTransactionStatus);
 
 module.exports = router;

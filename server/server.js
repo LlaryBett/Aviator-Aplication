@@ -3,17 +3,37 @@ const http = require('http');
 const WebSocket = require('ws');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const path = require('path');
+
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 const apiRoutes = require('./src/routes/api');
 const websocketHandler = require('./src/routes/websocket');
 const authRoutes = require('./src/routes/auth');
 const transactionRoutes = require('./src/routes/transactions');
 const chatRoutes = require('./src/routes/chat');
-require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 
-// Add this debug logging
+// Add M-Pesa environment checks
 console.log('Environment Check:');
 console.log('JWT_SECRET:', process.env.JWT_SECRET ? 'Is set' : 'NOT SET');
 console.log('MONGODB_URI:', process.env.MONGODB_URI ? 'Is set' : 'NOT SET');
+console.log('MPESA_SHORTCODE:', process.env.MPESA_SHORTCODE ? 'Is set' : 'NOT SET');
+console.log('MPESA_PASSKEY:', process.env.MPESA_PASSKEY ? 'Is set' : 'NOT SET');
+console.log('MPESA_CONSUMER_KEY:', process.env.MPESA_CONSUMER_KEY ? 'Is set' : 'NOT SET');
+console.log('MPESA_CONSUMER_SECRET:', process.env.MPESA_CONSUMER_SECRET ? 'Is set' : 'NOT SET');
+
+// Validate required M-Pesa variables
+const requiredEnvVars = [
+  'MPESA_SHORTCODE',
+  'MPESA_PASSKEY',
+  'MPESA_CONSUMER_KEY',
+  'MPESA_CONSUMER_SECRET'
+];
+
+const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+if (missingVars.length > 0) {
+  console.error('❌ Missing required environment variables:', missingVars.join(', '));
+  process.exit(1);
+}
 
 const app = express();
 const server = http.createServer(app);
@@ -42,8 +62,19 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
 };
 
+// Add route debugging middleware
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`);
+  next();
+});
+
 app.use(cors(corsOptions));
 app.use(express.json());
+
+app.get('/', (req, res) => {
+  res.send('Aviator backend is running!');
+});
+
 app.use('/api', apiRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/transactions', transactionRoutes);

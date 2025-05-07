@@ -25,8 +25,13 @@ const AuthModal = ({ isOpen, onClose, defaultTab = 'login' }) => {
     try {
       if (activeTab === 'login') {
         const success = await login(formData);
-        if (success) {
+        if (success && success.token) {
+          localStorage.setItem('token', success.token);
+          console.log('Login successful. Token:', success.token); // Add this line
           onClose();
+        } else {
+          console.error('Login failed or token missing:', success);
+          setError('Login failed. Please try again.');
         }
       } else {
         // Handle registration

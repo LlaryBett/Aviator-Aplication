@@ -7,7 +7,15 @@ import { toast } from 'react-hot-toast';
 import { useGameState } from '../utils/gameLogic';
 import { BetIdValidator } from '../utils/betIdValidator';
 
-const BetPanel = ({ panelId, gamePhase, currentMultiplier, onPlaceBet, onCashOut }) => {
+const BetPanel = ({ 
+  panelId, 
+  gamePhase, 
+  currentMultiplier, 
+  onPlaceBet, 
+  onCashOut,
+  isDemoMode,
+  balance 
+}) => {
   const { user } = useAuth();
   const { placeBet, cashOut, handleLoss, isLocked } = useBetManager();
   const { setPlayerBetId } = useGameState();
@@ -98,7 +106,18 @@ const BetPanel = ({ panelId, gamePhase, currentMultiplier, onPlaceBet, onCashOut
   }, [betInfo.isActive, betInfo.autoCashout, currentMultiplier, gamePhase, isCashingOut]);
 
   const handlePlaceBet = async () => {
-    if (isPlacingBet || isCashingOut || betDebounceRef.current || !user || user.balance < betInfo.amount) {
+    const amount = Number(betInfo.amount);
+    // Always log when Place Bet is pressed
+    console.log('[BetPanel] handlePlaceBet pressed', { isDemoMode, amount, balance, betInfo, gamePhase });
+    if (amount <= 0 || amount > balance) {
+      toast.error(isDemoMode ? 'Invalid demo bet amount' : 'Invalid bet amount');
+      return;
+    }
+    // Add this console for demo mode
+    if (isDemoMode) {
+      console.log('[DEMO] handlePlaceBet called', { amount, balance, betInfo });
+    }
+    if (isPlacingBet || isCashingOut || betDebounceRef.current || (!user && !isDemoMode) || (!isDemoMode && user.balance < betInfo.amount)) {
       return;
     }
     if (isLocked) return;
@@ -110,6 +129,25 @@ const BetPanel = ({ panelId, gamePhase, currentMultiplier, onPlaceBet, onCashOut
       setIsPlacingBet(true);
       console.log('[BetPanel] Placing bet:', { amount: betInfo.amount, autoCashout: betInfo.autoCashout });
       
+      // DEMO MODE: Call onPlaceBet directly and return
+      if (isDemoMode) {
+        onPlaceBet(amount, betInfo.autoCashout, {
+          betId: `demo-bet-${panelId}-${Date.now()}`,
+          username: 'DemoUser',
+          avatar: '',
+          betAmount: amount,
+          status: 'betting',
+          autoCashout: betInfo.autoCashout,
+        });
+        setBetInfo((prev) => ({
+          ...prev,
+          isActive: true,
+          betId: `demo-bet-${panelId}-${Date.now()}`
+        }));
+        setIsPlacingBet(false);
+        return;
+      }
+
       const result = await placeBet(betInfo.amount, betInfo.autoCashout);
       
       if (result.success && result.betId) {
@@ -190,6 +228,17 @@ const BetPanel = ({ panelId, gamePhase, currentMultiplier, onPlaceBet, onCashOut
 
       setBetInfo(prev => ({ ...prev, isActive: false }));
 
+      // DEMO MODE: Directly call onCashOut and skip API
+      if (isDemoMode) {
+        const winAmount = betInfo.amount * currentMultiplier;
+        onCashOut(activeBetId, winAmount, currentMultiplier, 'cashed_out');
+        setBetInfo(prev => ({ ...prev, betId: null }));
+        toast.success(`Demo Win: ${winAmount.toFixed(2)} KES!`);
+        setIsCashingOut(false);
+        return;
+      }
+
+      // ...existing live mode cashout logic...
       const success = await cashOut(activeBetId, betInfo.amount, currentMultiplier);
 
       if (success) {
@@ -222,10 +271,15 @@ const BetPanel = ({ panelId, gamePhase, currentMultiplier, onPlaceBet, onCashOut
 
   useEffect(() => {
     if (gamePhase === 'crashed' && betInfo.isActive && betInfo.betId) {
-      handleLoss(betInfo.betId);
+      // Only call handleLoss for live mode (authorized)
+      if (!isDemoMode) {
+        handleLoss(betInfo.betId);
+      } else {
+        toast.error(`Demo Lost: ${betInfo.amount.toFixed(2)} KES`);
+      }
       setBetInfo(prev => ({ ...prev, isActive: false }));
     }
-  }, [gamePhase, betInfo.isActive, betInfo.betId, handleLoss]);
+  }, [gamePhase, betInfo.isActive, betInfo.betId, handleLoss, isDemoMode]);
 
   const isPanelActive = betInfo.isActive;
   const canCashOut = isPanelActive && gamePhase === 'flying' && !isCashingOut;
@@ -235,7 +289,10 @@ const BetPanel = ({ panelId, gamePhase, currentMultiplier, onPlaceBet, onCashOut
     (betInfo.amount * (betInfo.autoCashout || currentMultiplier)).toFixed(2) : 
     (betInfo.amount * 2).toFixed(2);
 
-  const isBetDisabled = isPlacingBet || !user || user.balance < betInfo.amount;
+  const isBetDisabled =
+    isPlacingBet ||
+    (!isDemoMode && (!user || user.balance < betInfo.amount)) ||
+    (isDemoMode && (balance < betInfo.amount));
 
   return (
     <>
@@ -380,7 +437,9 @@ BetPanel.propTypes = {
   gamePhase: PropTypes.oneOf(['waiting', 'flying', 'crashed']).isRequired,
   currentMultiplier: PropTypes.number.isRequired,
   onPlaceBet: PropTypes.func.isRequired,
-  onCashOut: PropTypes.func.isRequired
+  onCashOut: PropTypes.func.isRequired,
+  isDemoMode: PropTypes.bool,
+  balance: PropTypes.number
 };
 
 export default BetPanel;

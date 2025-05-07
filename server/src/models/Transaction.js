@@ -23,7 +23,14 @@ const transactionSchema = new mongoose.Schema({
     default: 'pending'
   },
   balanceAfter: Number,
-  phoneNumber: String
+  phoneNumber: String,
+  mpesa: {
+    checkoutRequestID: String,
+    merchantRequestID: String,
+    resultCode: Number,
+    resultDesc: String,
+    phoneNumber: String,
+  }
 }, { 
   timestamps: true,
   strict: true

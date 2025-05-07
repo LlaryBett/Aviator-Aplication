@@ -150,8 +150,9 @@ router.post('/login', async (req, res) => {
       process.env.JWT_SECRET || 'aviatorsecret'
     );
 
-    // Always return a fresh user object and token
-    res.json({
+    console.log('Login successful. Generated token:', token); // Add this line
+
+    const responseData = {
       user: {
         _id: user._id,
         username: user.username,
@@ -161,10 +162,19 @@ router.post('/login', async (req, res) => {
         avatar: user.avatar
       },
       token
-    });
+    };
+
+    console.log('Sending login response:', responseData); // Add this line
+
+    console.log('About to send JSON response'); // Add this line
+
+    // Always return a fresh user object and token
+    res.json(responseData);
   } catch (error) {
     console.error('Login Error:', error);
     res.status(401).json({ error: error.message });
+  } finally {
+    console.log('Login process completed (success or failure)'); // Add this line
   }
 });
 

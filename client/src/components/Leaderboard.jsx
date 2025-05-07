@@ -1,123 +1,71 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Trophy, Award } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Trophy } from 'lucide-react';
+import { generateAnonymousName } from '../utils/nameGenerator';
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+const generateDummyLeader = (id) => ({
+  id: `dummy_leader_${id}_${Date.now()}`,
+  username: generateAnonymousName(),
+  winAmount: Math.floor(Math.random() * 50000) + 1000,
+  multiplier: (Math.random() * 4 + 1).toFixed(2),
+  avatar: `https://i.pravatar.cc/150?u=leader${id}`,
+});
 
 const Leaderboard = () => {
   const [leaders, setLeaders] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  const fetchLeaderboard = useCallback(async () => {
-    try {
-      const response = await fetch(`${BACKEND_URL}/api/transactions/leaderboard`);
-      const data = await response.json();
-      if (Array.isArray(data)) {
-        setLeaders(data);
-      } else {
-        setLeaders([]);
-        console.error('Leaderboard API did not return an array:', data);
-      }
-      setLoading(false);
-    } catch (error) {
-      setLeaders([]);
-      console.error('Leaderboard fetch error:', error);
-      setLoading(false);
-    }
-  }, []);
+  const [activeCount, setActiveCount] = useState(() => Math.floor(Math.random() * 400) + 100);
 
   useEffect(() => {
-    let ws = null;
-    let reconnectAttempts = 0;
-    const maxReconnectAttempts = 5;
-
-    const connectWebSocket = () => {
-        const wsUrl = BACKEND_URL.replace('http', 'ws');
-        ws = new WebSocket(wsUrl);
-
-        ws.onopen = () => {
-            console.log('✅ Leaderboard WebSocket connected');
-            reconnectAttempts = 0;
-            fetchLeaderboard();
-        };
-
-        ws.onclose = () => {
-            console.log('❌ Leaderboard WebSocket closed');
-            if (reconnectAttempts < maxReconnectAttempts) {
-                reconnectAttempts++;
-                setTimeout(connectWebSocket, 1000 * reconnectAttempts);
-            }
-        };
-
-        ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            if (data.type === 'leaderboard_update') {
-                fetchLeaderboard();
-            }
-        };
+    // Dummy leaderboard logic: always randomize names, win amounts, multipliers
+    const updateLeaders = () => {
+      const dummyLeaders = Array.from({ length: 10 }, (_, i) => generateDummyLeader(i + 1));
+      setLeaders(dummyLeaders);
     };
 
-    connectWebSocket();
-    
+    updateLeaders();
+    const interval = setInterval(updateLeaders, 2000);
+
+    // Also randomize active count for realism
+    const activeInterval = setInterval(() => {
+      setActiveCount(Math.floor(Math.random() * 400) + 100);
+    }, 2000);
+
     return () => {
-        if (ws) {
-            ws.close();
-        }
+      clearInterval(interval);
+      clearInterval(activeInterval);
     };
-  }, [fetchLeaderboard]);
-
-  if (loading) {
-    return (
-      <div className="bg-gray-800 rounded-lg p-4">
-        <h2 className="text-lg font-semibold mb-4 flex items-center">
-          <Trophy className="mr-2 text-yellow-500" />
-          Top Winners
-        </h2>
-        <div className="animate-pulse space-y-2">
-          {[...Array(5)].map((_, i) => (
-            <div key={i} className="h-10 bg-gray-700 rounded"></div>
-          ))}
-        </div>
-      </div>
-    );
-  }
+  }, []);
 
   return (
     <div className="bg-gray-800 rounded-lg p-4">
       <h2 className="text-lg font-semibold mb-4 flex items-center">
         <Trophy className="mr-2 text-yellow-500" />
         Top Winners
+        <span className="ml-auto text-xs text-gray-400">{activeCount} Active</span>
       </h2>
       <div className="space-y-2">
-        {Array.isArray(leaders) && leaders.length > 0 ? (
-          leaders.map((player, index) => (
-            <div 
-              key={player._id}
-              className="flex items-center justify-between p-2 rounded bg-gray-700/50 hover:bg-gray-700"
-            >
-              <div className="flex items-center">
-                <span className="w-6 text-gray-400">
-                  {index + 1}.
-                </span>
-                <span className="font-medium">
-                  {player.username || 'Anonymous'}
-                </span>
+        {leaders.map((player) => (
+          <div
+            key={player.id}
+            className="flex items-center justify-between p-2 rounded bg-gray-700/50 hover:bg-gray-700 transition-all"
+          >
+            <div className="flex items-center">
+              <img
+                src={`https://i.pravatar.cc/150?u=${player.username}`}
+                alt=""
+                className="w-7 h-7 rounded-full mr-2 bg-gray-600"
+              />
+              <span className="font-medium text-white">{player.username}</span>
+            </div>
+            <div className="text-right">
+              <div className="text-sm font-medium text-teal-400">
+                {player.winAmount.toLocaleString()} KES
               </div>
-              <div className="text-right">
-                <div className="text-sm font-medium text-teal-400">
-                  KES {player.totalWinnings?.toLocaleString()}
-                </div>
-                <div className="text-xs text-gray-400 flex items-center">
-                  <Award size={12} className="mr-1" />
-                  {player.winCount} wins
-                </div>
+              <div className="text-xs text-gray-400">
+                {player.multiplier}x
               </div>
             </div>
-          ))
-        ) : (
-          <div className="text-center text-gray-500 py-4">
-            No winners yet
           </div>
-        )}
+        ))}
       </div>
     </div>
   );

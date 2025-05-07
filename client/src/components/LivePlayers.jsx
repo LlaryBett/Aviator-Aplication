@@ -1,68 +1,160 @@
 import React, { memo, useState, useEffect, useRef } from 'react';
 import { Users } from 'lucide-react';
 import PropTypes from 'prop-types';
+import { generateAnonymousName } from '../utils/nameGenerator';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
 
+const generateDummyPlayer = (id) => ({
+  betId: `dummy${id}_${Date.now()}`, // Unique ID with timestamp
+  username: generateAnonymousName(),
+  betAmount: Math.floor(Math.random() * 900) + 100,
+  status: 'betting',
+  targetMultiplier: (Math.random() * 3) + 1.2
+});
+
 const LivePlayers = memo(({ players, currentMultiplier }) => {
-  // Add this style block at the top of the component
+  // Add both red and green blink animations
   const blinkAnimation = `
     @keyframes crashBlink {
       0% { color: #22c55e; }
+      25% { color: #ef4444; }
       50% { color: #ef4444; }
+      75% { color: #ef4444; }
       100% { color: #ef4444; }
+    }
+    @keyframes cashoutBlink {
+      0% { color: #ef4444; }
+      50% { color: #22c55e; }
+      100% { color: #22c55e; }
     }
   `;
 
   const [localPlayers, setLocalPlayers] = useState([]);
-  const [blinkingPlayers, setBlinkingPlayers] = useState({});
-  const removeTimerRefs = useRef({});
+  const [dummyMultiplier, setDummyMultiplier] = useState(1.0);
+  const [activeCount, setActiveCount] = useState(() => Math.floor(Math.random() * 400) + 100);
   const tableRef = useRef(null);
   const displayCount = 20;
 
   useEffect(() => {
-    // Filter out players with zero stake
-    const filteredPlayers = players.filter(player => player.betAmount > 0);
+    const minPlayers = 10;
+    const addNewPlayers = (currentPlayers) => {
+      const activePlayers = currentPlayers.filter(p => p.status === 'betting').length;
+      const newPlayers = [];
+      while (activePlayers + newPlayers.length < minPlayers) {
+        newPlayers.push(generateDummyPlayer(Date.now() + Math.random()));
+      }
+      return [...currentPlayers, ...newPlayers].slice(0, displayCount);
+    };
 
-    // Randomly select top players
-    const shuffledPlayers = [...filteredPlayers].sort(() => 0.5 - Math.random());
-    const topPlayers = shuffledPlayers.slice(0, displayCount);
+    if (players.length === 0) {
+      setLocalPlayers(prev => addNewPlayers(prev));
 
-    setLocalPlayers(topPlayers);
-  }, [players]);
+      let crashedTimeout = null;
+
+      const multiplierInterval = setInterval(() => {
+        setDummyMultiplier(prev => {
+          const newMultiplier = prev + (prev * 0.005);
+
+          setLocalPlayers(prevPlayers => {
+            // 1. Update statuses and randomize names/stakes for all dummy players
+            let updatedPlayers = prevPlayers.map(player => {
+              if (!player.betId.startsWith('dummy')) return player;
+
+              // Always randomize name and stake for every dummy player on every tick
+              const newName = generateAnonymousName();
+              const newStake = Math.floor(Math.random() * 900) + 100;
+
+              if (player.status !== 'betting') {
+                // If not betting, replace with a new player (fresh name, stake, etc)
+                return generateDummyPlayer(Date.now() + Math.random());
+              }
+
+              // Make crashes rare (e.g. 2% after 2x), wins are much more likely
+              const crashChance = newMultiplier > 2 ? 0.02 : 0.001;
+              if (Math.random() < crashChance) {
+                return {
+                  ...player,
+                  username: newName,
+                  betAmount: newStake,
+                  status: 'crashed',
+                  multiplier: newMultiplier
+                };
+              }
+
+              if (newMultiplier >= player.targetMultiplier) {
+                return {
+                  ...player,
+                  username: newName,
+                  betAmount: newStake,
+                  status: 'cashed_out',
+                  multiplier: player.targetMultiplier,
+                  winAmount: newStake * player.targetMultiplier // use new stake for realism
+                };
+              }
+
+              // For betting, always update name and stake
+              return {
+                ...player,
+                username: newName,
+                betAmount: newStake
+              };
+            });
+
+            // 2. Replace crashed/cashed_out players after their animation
+            if (
+              updatedPlayers.some(p => p.status === 'crashed' || p.status === 'cashed_out') &&
+              !crashedTimeout
+            ) {
+              crashedTimeout = setTimeout(() => {
+                setLocalPlayers(current => {
+                  let replaced = current.map(player =>
+                    (player.status === 'crashed' || player.status === 'cashed_out')
+                      ? generateDummyPlayer(Date.now() + Math.random())
+                      : player
+                  );
+                  replaced = addNewPlayers(replaced);
+                  return replaced;
+                });
+                crashedTimeout = null;
+              }, 2000);
+            }
+
+            updatedPlayers = addNewPlayers(updatedPlayers);
+            return updatedPlayers;
+          });
+
+          return newMultiplier;
+        });
+      }, 300);
+
+      const resetInterval = setInterval(() => {
+        setDummyMultiplier(1.0);
+      }, 10000);
+
+      return () => {
+        clearInterval(multiplierInterval);
+        clearInterval(resetInterval);
+        if (crashedTimeout) clearTimeout(crashedTimeout);
+      };
+    }
+  }, [players.length]);
 
   useEffect(() => {
-    localPlayers.forEach(player => {
-      if ((player.status === 'cashed_out' || player.status === 'crashed') && !blinkingPlayers[player.betId]) {
-        setBlinkingPlayers(prev => ({ ...prev, [player.betId]: true }));
+    const interval = setInterval(() => {
+      setActiveCount(Math.floor(Math.random() * 400) + 100);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [players.length]);
 
-        // Clear any existing timer for this player
-        if (removeTimerRefs.current[player.betId]) {
-          clearTimeout(removeTimerRefs.current[player.betId]);
-        }
-
-        // Set a new timer to remove the player
-        removeTimerRefs.current[player.betId] = setTimeout(() => {
-          setLocalPlayers(prev => prev.filter(p => p.betId !== player.betId));
-          setBlinkingPlayers(prev => {
-            const { [player.betId]: _, ...rest } = prev;
-            return rest;
-          });
-        }, 1000);
-      }
-    });
-
-    // Cleanup function to clear timers when component unmounts or players change
-    return () => {
-      Object.values(removeTimerRefs.current).forEach(timer => clearTimeout(timer));
-      removeTimerRefs.current = {};
-    };
-  }, [localPlayers, blinkingPlayers]);
+  useEffect(() => {
+    console.log('Local players updated:', localPlayers);
+  }, [localPlayers]);
 
   const getPlayerStatus = (player) => {
-    const multiplier = typeof currentMultiplier === 'number' ? currentMultiplier : 0;
+    const multiplier = player.betId.startsWith('dummy') ? dummyMultiplier : currentMultiplier;
     const possibleWin = player.betAmount * multiplier;
-    
+
     if (player.status === 'betting') {
       return {
         className: 'text-green-400 animate-pulse',
@@ -70,13 +162,13 @@ const LivePlayers = memo(({ players, currentMultiplier }) => {
       };
     } else if (player.status === 'cashed_out') {
       return {
-        className: 'text-green-400',
+        className: 'text-green-400 animate-[cashoutBlink_0.8s_ease-in_forwards]',
         text: `Won ${player.winAmount.toFixed(2)} KES`
       };
     } else if (player.status === 'crashed') {
       return {
-        className: 'animate-[crashBlink_0.5s_ease-in_forwards]',
-        text: `${multiplier.toFixed(2)}x`
+        className: 'text-red-500 animate-[crashBlink_2s_ease-in_forwards]', // Longer animation
+        text: `${player.betAmount.toFixed(2)} KES`
       };
     }
     return { className: 'text-gray-400', text: 'Waiting...' };
@@ -88,7 +180,6 @@ const LivePlayers = memo(({ players, currentMultiplier }) => {
     }
   }, [localPlayers]);
 
-  // Add WebSocket connection
   useEffect(() => {
     let ws = null;
     let reconnectAttempts = 0;
@@ -117,12 +208,10 @@ const LivePlayers = memo(({ players, currentMultiplier }) => {
           
           switch(data.type) {
             case 'player_bet':
-              // Add new player to the list
               setLocalPlayers(prev => [data.player, ...prev].slice(0, displayCount));
               break;
             
             case 'player_cashout':
-              // Update player status on cashout
               setLocalPlayers(prev => 
                 prev.map(p => 
                   p.betId === data.betId 
@@ -133,7 +222,6 @@ const LivePlayers = memo(({ players, currentMultiplier }) => {
               break;
             
             case 'player_crash':
-              // Update player status on crash
               setLocalPlayers(prev => 
                 prev.map(p => 
                   p.betId === data.betId 
@@ -144,7 +232,6 @@ const LivePlayers = memo(({ players, currentMultiplier }) => {
               break;
 
             case 'game_start':
-              // Clear players that are not betting in the new round
               setLocalPlayers(prev => prev.filter(p => p.status === 'betting'));
               break;
           }
@@ -173,7 +260,7 @@ const LivePlayers = memo(({ players, currentMultiplier }) => {
             Live Players
           </h3>
           <span className="text-xs text-gray-400">
-            {localPlayers.length} Active
+            {activeCount} Active
           </span>
         </div>
 
@@ -197,9 +284,7 @@ const LivePlayers = memo(({ players, currentMultiplier }) => {
                   return (
                     <tr
                       key={player.betId}
-                      className={`border-b border-gray-700/50 hover:bg-gray-700/30 transition-all ${
-                        blinkingPlayers[player.betId] ? 'opacity-0 duration-1000' : 'opacity-100'
-                      }`}
+                      className={`border-b border-gray-700/50 hover:bg-gray-700/30 transition-all`}
                     >
                       <td className="px-4 py-2">
                         <div className="flex items-center gap-3">

@@ -47,15 +47,17 @@ export const AuthProvider = ({ children }) => {
         localStorage.setItem('token', data.token);
         sessionStorage.setItem('user', JSON.stringify(data.user));
         setUser(data.user);
+        console.log('Login successful. User data:', data.user);
+        console.log('Login successful. Full data:', data);
         toast.success('Successfully logged in!');
         fetchBalance();
-        return true;
+        return data; // Return the data object
       }
       toast.error(data.error || 'Login failed');
       throw new Error(data.error);
     } catch (err) {
       toast.error(err.message || 'Login failed');
-      return false;
+      return null; // Return null on error
     }
   };
 
@@ -125,15 +127,15 @@ export const AuthProvider = ({ children }) => {
     setBalanceFetchLock(true);
 
     try {
-      const response = await fetch(`${BACKEND_URL}/api/transactions/balance`, {
+      const res = await fetch(`${import.meta.env.VITE_BACKEND_URL}/api/transactions/balance`, {
         headers: { 
-          Authorization: `Bearer ${localStorage.getItem('token')}`,
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
         }
       });
       
-      const data = await response.json();
-      if (response.ok && data.balance !== user?.balance) {
+      const data = await res.json();
+      if (res.ok && data.balance !== user?.balance) {
         updateBalance(Number(data.balance));
         console.log('✅ Balance fetched and updated:', data.balance);
       }

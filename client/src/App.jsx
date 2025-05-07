@@ -9,8 +9,10 @@ import Leaderboard from './components/Leaderboard';
 import { useGameState } from './utils/gameLogic';
 import { useAuth } from './context/AuthContext';
 import AuthModal from './components/AuthModal';
-import DepositModal from './components/DepositModal';
+import TransactionModal from './components/TransactionModal';
 import { Toaster } from 'react-hot-toast';
+import LoginOrDemoPrompt from './components/LoginOrDemoPrompt';
+import { toast } from 'react-toastify';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
 
@@ -26,10 +28,20 @@ const App = memo(function App() {
   const { user, isLoading, logout, fetchBalance } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const [showDepositModal, setShowDepositModal] = useState(false);
+  const [showTransactionModal, setShowTransactionModal] = useState(false);
   const [showAccountMenu, setShowAccountMenu] = useState(false);
   const [activePlayers, setActivePlayers] = useState([]);
   const [cashedOutBets, setCashedOutBets] = useState([]); // Track cashed out betIds
+  const [showModePrompt, setShowModePrompt] = useState(true);
+  const [demoMode, setDemoMode] = useState(false);
+  const [demoBalance, setDemoBalance] = useState(0);
+  const isLoggedIn = !!localStorage.getItem('token');
+
+  const getDisplayedBalance = () => {
+    if (demoMode) return demoBalance.toFixed(2);
+    if (user) return formatBalance(user.balance);
+    return '0.00';
+  };
 
   useEffect(() => {
     if (gamePhase === 'waiting') {
@@ -38,6 +50,36 @@ const App = memo(function App() {
   }, [gamePhase]);
 
   const handleBet = (panelId, amount, autoCashout, betData) => {
+    if (!isLoggedIn && !demoMode) {
+      toast.error('You must login to place a bet.');
+      return;
+    }
+    if (demoMode) {
+      console.log('[DEMO] Placing bet:', { panelId, amount, autoCashout, betData, demoBalance });
+      if (demoBalance < amount) {
+        toast.error('Insufficient demo balance.');
+        return;
+      }
+      // Deduct balance and add player
+      setDemoBalance(prev => {
+        const newBalance = prev - amount;
+        console.log('[DEMO] New demo balance after bet:', newBalance);
+        return newBalance;
+      });
+      setActivePlayers(prev => [
+        ...prev,
+        betData
+          ? { ...betData, amount, status: 'betting', betAmount: amount }
+          : {
+              username: 'DemoUser',
+              betAmount: amount,
+              status: 'betting',
+              betId: `demo-bet-${Date.now()}`,
+              autoCashout,
+            }
+      ]);
+      return;
+    }
     if (betData) {
       handlePlayerBet(betData);
       // Always pass betId to placeBet if available
@@ -56,8 +98,22 @@ const App = memo(function App() {
     setCashedOutBets(prev => [...prev, betId]);
 
     const playerId = `player${panelId}`;
-    cashOut(playerId); // If your cashOut supports betId, pass it here
+    if (demoMode) {
+      // Find the player and update demoBalance accordingly
+      setActivePlayers(prev => {
+        const player = prev.find(p => p.betId === betId);
+        if (player && status === 'cashed_out') {
+          setDemoBalance(prevBal => prevBal + (player.betAmount * multiplier));
+        }
+        return prev.filter(p => p.betId !== betId);
+      });
+      setTimeout(() => {
+        setCashedOutBets(prev => prev.filter(id => id !== betId));
+      }, 3000);
+      return;
+    }
 
+    cashOut(playerId); // If your cashOut supports betId, pass it here
     handlePlayerUpdate(betId, status, winAmount, multiplier);
 
     // Remove player after 3 seconds
@@ -105,7 +161,21 @@ const App = memo(function App() {
       setShowAuthModal(true);
       return;
     }
-    setShowDepositModal(true);
+    setShowTransactionModal(true);
+  };
+
+  const handlePlayLive = () => {
+    setShowModePrompt(false);
+    if (!isLoggedIn) {
+      toast.info('Please login to play live.');
+      // Optionally, redirect to login page here
+    }
+  };
+
+  const handlePlayDemo = (initialBalance) => {
+    setShowModePrompt(false);
+    setDemoMode(true);
+    setDemoBalance(initialBalance); // Set demo balance to 5000
   };
 
   useEffect(() => {
@@ -143,7 +213,12 @@ const App = memo(function App() {
           </div>
           
           <div className="hidden md:flex items-center space-x-4">
-            {user ? (
+            {/* Show demo balance if in demo mode, otherwise show user balance */}
+            {demoMode ? (
+              <div className="flex items-center space-x-2 px-3 py-1 bg-gray-700 rounded">
+                <span>Demo Balance: KES {getDisplayedBalance()}</span>
+              </div>
+            ) : user ? (
               <div className="relative">
                 <button
                   onClick={() => setShowAccountMenu(!showAccountMenu)}
@@ -164,7 +239,7 @@ const App = memo(function App() {
                         className="w-full text-left px-3 py-2 text-sm hover:bg-gray-700 rounded flex items-center"
                       >
                         <DollarSign size={16} className="mr-2" />
-                        Deposit
+                        Wallet
                       </button>
                       <button
                         onClick={() => {
@@ -252,6 +327,8 @@ const App = memo(function App() {
                 currentMultiplier={currentMultiplier}
                 onPlaceBet={(amount, autoCashout, betData) => handleBet(1, amount, autoCashout, betData)}
                 onCashOut={(betId, winAmount, multiplier, status) => handleCashout(1, betId, winAmount, multiplier, status)}
+                isDemoMode={demoMode}
+                balance={demoMode ? demoBalance : user?.balance || 0}
               />
               <BetPanel 
                 panelId={2}
@@ -259,6 +336,8 @@ const App = memo(function App() {
                 currentMultiplier={currentMultiplier}
                 onPlaceBet={(amount, autoCashout, betData) => handleBet(2, amount, autoCashout, betData)}
                 onCashOut={(betId, winAmount, multiplier, status) => handleCashout(2, betId, winAmount, multiplier, status)}
+                isDemoMode={demoMode}
+                balance={demoMode ? demoBalance : user?.balance || 0}
               />
             </div>
             <GameHistory history={gameHistory} />
@@ -291,11 +370,17 @@ const App = memo(function App() {
           onClose={() => setShowAuthModal(false)}
         />
       )}
-      {showDepositModal && user && (
-        <DepositModal 
-          isOpen={showDepositModal}
-          onClose={() => setShowDepositModal(false)}
-          user={user}
+      {showTransactionModal && user && (
+        <TransactionModal 
+          isOpen={showTransactionModal}
+          onClose={() => setShowTransactionModal(false)}
+          balance={user?.balance || 0}
+        />
+      )}
+      {showModePrompt && (
+        <LoginOrDemoPrompt
+          onPlayLive={handlePlayLive}
+          onPlayDemo={handlePlayDemo}
         />
       )}
       <Toaster
