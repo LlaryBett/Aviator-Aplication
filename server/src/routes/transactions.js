@@ -4,7 +4,8 @@ const Transaction = require('../models/Transaction');
 const auth = require('../middleware/auth');
 const User = require('../models/User');
 const mongoose = require('mongoose');
-const { initiateDeposit, handleCallback, getTransactionStatus } = require('../controllers/mpesaController');
+const { initiateDeposit, handleCallback, getTransactionStatus, initiateWithdraw, handleB2CCallback } = require('../controllers/mpesaController');
+const { initiateB2C } = require('../utils/mpesa');
 console.log('M-Pesa controller loaded:', { initiateDeposit, handleCallback });
 
 console.log('[transactions.js] Loaded and routes registered');
@@ -429,9 +430,12 @@ router.get('/leaderboard', async (req, res) => {
     }
 });
 
+router.post('/withdraw', auth, initiateWithdraw);
+
 // M-Pesa routes
 router.post('/mpesa/stk', auth, initiateDeposit);
 router.post('/mpesa/callback', handleCallback);
+router.post('/mpesa/b2c-callback', handleB2CCallback);
 router.get('/status/:requestId', auth, getTransactionStatus);
 
 module.exports = router;

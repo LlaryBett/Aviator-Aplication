@@ -57,4 +57,34 @@ const initiateSTKPush = async (phone, amount) => {
   }
 };
 
-module.exports = { getAccessToken, initiateSTKPush };
+const initiateB2C = async (phone, amount) => {
+  const token = await getAccessToken();
+  try {
+    const response = await axios.post(
+      'https://sandbox.safaricom.co.ke/mpesa/b2c/v1/paymentrequest',
+      {
+        InitiatorName: process.env.MPESA_B2C_INITIATOR_NAME, // from .env
+        SecurityCredential: process.env.MPESA_B2C_INITIATOR_PASSWORD, // from .env
+        CommandID: "BusinessPayment",
+        Amount: amount,
+        PartyA: process.env.MPESA_B2C_SHORTCODE, // from .env
+        PartyB: phone,
+        Remarks: "Withdrawal",
+        QueueTimeOutURL: process.env.MPESA_B2C_CALLBACK_URL, // from .env
+        ResultURL: process.env.MPESA_B2C_CALLBACK_URL, // from .env
+        Occasion: "Aviator Withdraw"
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+    return response.data;
+  } catch (error) {
+    console.error('B2C error:', error.response?.data || error);
+    throw error;
+  }
+};
+
+module.exports = { getAccessToken, initiateSTKPush, initiateB2C };

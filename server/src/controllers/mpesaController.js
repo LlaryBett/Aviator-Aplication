@@ -1,4 +1,4 @@
-const { initiateSTKPush } = require('../utils/mpesa');
+const { initiateSTKPush, initiateB2C } = require('../utils/mpesa');
 const Transaction = require('../models/Transaction');
 const User = require('../models/User');
 
@@ -29,6 +29,30 @@ exports.initiateDeposit = async (req, res) => {
     });
   } catch (error) {
     console.error('M-Pesa error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.initiateWithdraw = async (req, res) => {
+  try {
+    const { amount, phone } = req.body;
+    if (!amount || !phone) {
+      return res.status(400).json({ success: false, message: 'Amount and phone are required' });
+    }
+    const b2cResponse = await initiateB2C(phone, amount);
+    const transaction = new Transaction({
+      userId: req.user._id,
+      type: 'withdraw',
+      amount,
+      status: 'pending',
+      phoneNumber: phone,
+      mpesa: {
+        merchantRequestID: b2cResponse.ConversationID
+      }
+    });
+    await transaction.save();
+    res.json({ success: true, message: 'Withdrawal request submitted!', transactionId: transaction._id });
+  } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -69,6 +93,12 @@ exports.handleCallback = async (req, res) => {
     console.error('Callback error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
+};
+
+exports.handleB2CCallback = async (req, res) => {
+  console.log('M-Pesa B2C callback received:', req.body);
+  // You can process the result here, e.g., update transaction status
+  res.json({ success: true });
 };
 
 exports.getTransactionStatus = async (req, res) => {

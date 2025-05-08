@@ -13,6 +13,7 @@ import TransactionModal from './components/TransactionModal';
 import { Toaster } from 'react-hot-toast';
 import LoginOrDemoPrompt from './components/LoginOrDemoPrompt';
 import { toast } from 'react-toastify';
+import Loader from './components/Loader';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
 
@@ -200,7 +201,7 @@ const App = memo(function App() {
   };
 
   if (isLoading) {
-    return <div>Loading...</div>;
+    return <Loader />;
   }
 
   return (

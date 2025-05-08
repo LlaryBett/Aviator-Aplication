@@ -6,6 +6,7 @@ const TransactionModal = ({ isOpen, onClose, balance }) => {
   const [amount, setAmount] = useState('');
   const [phone, setPhone] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [tab, setTab] = useState('deposit'); // Add tab state
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -47,6 +48,47 @@ const TransactionModal = ({ isOpen, onClose, balance }) => {
     } catch (error) {
       console.error('Transaction error:', error);
       toast.error(error.message || 'Failed to process payment');
+      setIsLoading(false);
+    }
+  };
+
+  const handleWithdraw = async (e) => {
+    e.preventDefault();
+    if (!amount || !phone) return;
+
+    setIsLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) throw new Error('Not authenticated');
+
+      const res = await fetch(`${import.meta.env.VITE_BACKEND_URL}/api/transactions/withdraw`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          amount: Number(amount),
+          phone: phone.replace(/^0/, '254'),
+        })
+      });
+
+      if (!res.ok) {
+        const error = await res.text();
+        throw new Error(error);
+      }
+
+      const data = await res.json();
+      if (data.success) {
+        toast.success('Withdrawal request submitted!');
+        setIsLoading(false);
+        onClose();
+      } else {
+        throw new Error(data.message || 'Failed to initiate withdrawal');
+      }
+    } catch (error) {
+      console.error('Withdraw error:', error);
+      toast.error(error.message || 'Failed to process withdrawal');
       setIsLoading(false);
     }
   };
@@ -106,7 +148,9 @@ const TransactionModal = ({ isOpen, onClose, balance }) => {
         <div className="bg-gray-800 rounded-lg p-6 w-full max-w-md shadow-2xl animate-fade-in">
           <div className="flex justify-between items-center mb-6">
             <div>
-              <h2 className="text-xl font-bold text-white">Deposit via M-Pesa</h2>
+              <h2 className="text-xl font-bold text-white">
+                {tab === 'deposit' ? 'Deposit via M-Pesa' : 'Withdraw to M-Pesa'}
+              </h2>
               <p className="text-sm text-gray-400">Wallet Balance: KES {balance.toFixed(2)}</p>
             </div>
             <button onClick={onClose} className="text-gray-400 hover:text-white">
@@ -114,7 +158,25 @@ const TransactionModal = ({ isOpen, onClose, balance }) => {
             </button>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Tab Switch */}
+          <div className="flex mb-4">
+            <button
+              className={`flex-1 py-2 ${tab === 'deposit' ? 'text-white border-b-2 border-teal-500' : 'text-gray-400 border-b border-gray-700'}`}
+              onClick={() => setTab('deposit')}
+              disabled={isLoading}
+            >
+              Deposit
+            </button>
+            <button
+              className={`flex-1 py-2 ${tab === 'withdraw' ? 'text-white border-b-2 border-teal-500' : 'text-gray-400 border-b border-gray-700'}`}
+              onClick={() => setTab('withdraw')}
+              disabled={isLoading}
+            >
+              Withdraw
+            </button>
+          </div>
+
+          <form onSubmit={tab === 'deposit' ? handleSubmit : handleWithdraw} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-200 mb-1">
                 Amount (KES)
@@ -162,7 +224,7 @@ const TransactionModal = ({ isOpen, onClose, balance }) => {
               ) : (
                 <>
                   <ArrowDownCircle className="mr-2" size={18} />
-                  Deposit Now
+                  {tab === 'deposit' ? 'Deposit Now' : 'Withdraw Now'}
                 </>
               )}
             </button>
