@@ -63,15 +63,15 @@ const initiateB2C = async (phone, amount) => {
     const response = await axios.post(
       'https://sandbox.safaricom.co.ke/mpesa/b2c/v1/paymentrequest',
       {
-        InitiatorName: process.env.MPESA_B2C_INITIATOR_NAME, // from .env
-        SecurityCredential: process.env.MPESA_B2C_INITIATOR_PASSWORD, // from .env
+        InitiatorName: process.env.MPESA_B2C_INITIATOR_NAME, // testapi
+        SecurityCredential: process.env.MPESA_B2C_INITIATOR_PASSWORD, // Safaricom123!!
         CommandID: "BusinessPayment",
         Amount: amount,
-        PartyA: process.env.MPESA_B2C_SHORTCODE, // from .env
-        PartyB: phone,
+        PartyA: process.env.MPESA_B2C_SHORTCODE, // 600986
+        PartyB: phone, // should be 254708374149 for sandbox
         Remarks: "Withdrawal",
-        QueueTimeOutURL: process.env.MPESA_B2C_CALLBACK_URL, // from .env
-        ResultURL: process.env.MPESA_B2C_CALLBACK_URL, // from .env
+        QueueTimeOutURL: process.env.MPESA_B2C_CALLBACK_URL,
+        ResultURL: process.env.MPESA_B2C_CALLBACK_URL,
         Occasion: "Aviator Withdraw"
       },
       {
